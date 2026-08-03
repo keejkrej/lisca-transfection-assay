@@ -1,5 +1,6 @@
 from transfection.core.assay import (
     ASSAY_FILENAME,
+    DEFAULT_INTERVAL_MINUTES,
     DEFAULT_MAX_ONSET_MINUTES,
     AssayConfig,
     build_slide_mapping_from_samples,
@@ -64,6 +65,7 @@ from transfection.core.workspace import (
 
 __all__ = [
     "ASSAY_FILENAME",
+    "DEFAULT_INTERVAL_MINUTES",
     "DEFAULT_MAX_ONSET_MINUTES",
     "AssayConfig",
     "DEFAULT_QUARTILES",

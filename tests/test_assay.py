@@ -63,7 +63,7 @@ def test_load_assay_json(tmp_path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "assayId": "gene-expression",
+                "assayId": "transfection",
                 "assayLabel": "fixture",
                 "dataSourceKind": None,
                 "info1": {
@@ -97,7 +97,7 @@ def test_load_assay_json(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     config = load_assay(path)
-    assert config.assay_id == "gene-expression"
+    assert config.assay_id == "transfection"
     assert config.interval_minutes == 10.0
     assert config.max_onset_minutes == 30.0
     assert config.mapping[0].signal_channel == 1
@@ -112,7 +112,7 @@ def test_default_max_onset_when_analysis_omitted(tmp_path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "assayId": "gene-expression",
+                "assayId": "transfection",
                 "assayLabel": "fixture",
                 "info1": {
                     "name": "fixture",
@@ -122,9 +122,9 @@ def test_default_max_onset_when_analysis_omitted(tmp_path: Path) -> None:
                     "saveTo": "",
                 },
                 "info2": {
-                    "timelapseAmount": 10,
-                    "timelapseUnit": "minute",
                     "selectedFeatures": [],
+                    "timelapseAmount": None,
+                    "timelapseUnit": "minute",
                 },
                 "info3": {
                     "samples": [
@@ -143,9 +143,13 @@ def test_default_max_onset_when_analysis_omitted(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
+    from transfection.core.assay import DEFAULT_INTERVAL_MINUTES
+
     config = load_assay(path)
     assert config.max_onset_minutes == DEFAULT_MAX_ONSET_MINUTES
     assert DEFAULT_MAX_ONSET_MINUTES == 120.0
+    assert config.interval_minutes == DEFAULT_INTERVAL_MINUTES
+    assert DEFAULT_INTERVAL_MINUTES == 10.0
 
 
 def test_interval_units() -> None:

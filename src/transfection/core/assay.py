@@ -19,8 +19,9 @@ from transfection.core.slide import (
 )
 
 ASSAY_FILENAME = "assay.json"
-# Default second-pass translation-onset search cap (minutes) when
-# analysis.maxOnsetMinutes is omitted. Explicit 0 still means onset fixed at 0.
+# Defaults when assay.json omits fields (transfection assay only — this package).
+DEFAULT_INTERVAL_MINUTES = 10.0
+# Second-pass translation-onset search cap (minutes). Explicit 0 still means onset fixed at 0.
 DEFAULT_MAX_ONSET_MINUTES = 120.0
 
 
@@ -142,6 +143,8 @@ def _parse_assay(raw: dict[str, Any], *, path: Path) -> AssayConfig:
         info2.get("timelapseAmount") if isinstance(info2, dict) else None,
         info2.get("timelapseUnit") if isinstance(info2, dict) else None,
     )
+    if interval is None:
+        interval = DEFAULT_INTERVAL_MINUTES
 
     analysis = raw.get("analysis") if isinstance(raw.get("analysis"), dict) else {}
     max_onset = DEFAULT_MAX_ONSET_MINUTES

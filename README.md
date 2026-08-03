@@ -31,4 +31,4 @@ Full stage list and `assay.json` schema: `AGENTS.md`.
 
 ## Relation to LiSCA Studio
 
-This repo is the Python **goal source** for Studio transfection **analysis**. Production runs live in the lisca monorepo (`crates/lisca`, `lisca-analyze`). Studio’s wire `assayId` for this science is `gene-expression`.
+This repo is the Python **goal source** for Studio transfection **analysis**. Production runs live in the lisca monorepo (`crates/lisca`, `lisca-analyze`). Studio wire id: `transfection`.

@@ -21,7 +21,7 @@ Agent-facing notes for the **transfection** analysis package (Python goal source
 
 There is **no** interactive wizard and **no** `slide.json` / compact mapping DSL. Config is `assay.json` only. Agents author it directly.
 
-Studio’s closed-enum wire id for this science is still `gene-expression` (historical name in `@lisca/contracts`). Prefer that value when writing workspaces that Studio or Rust will open. This package does not require a specific `assayId` string to run stages.
+Studio wire id is **`transfection`**. Prefer that when writing workspaces Studio or Rust will open. Stages still run if `assayId` is missing or another string (mapping comes from `info3`).
 
 ## CLI
 
@@ -86,7 +86,7 @@ Studio-compatible JSON object. Canonical Effect Schema: `@lisca/contracts` → `
 
 | JSON path | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `assayId` | string | recommended | Studio wire id for transfection: `"gene-expression"` |
+| `assayId` | string | recommended | Studio wire id: `"transfection"` |
 | `assayLabel` | string | recommended | Display label |
 | `info2.timelapseAmount` | number \| null | for default interval | Positive frame step |
 | `info2.timelapseUnit` | `"second"` \| `"minute"` \| `"hour"` | for default interval | Converted to minutes |
@@ -115,7 +115,7 @@ Comma-separated tokens. Ranges are **inclusive** on both ends (Studio semantics)
 
 ```json
 {
-  "assayId": "gene-expression",
+  "assayId": "transfection",
   "assayLabel": "TF84 transfection",
   "dataSourceKind": null,
   "info1": {
