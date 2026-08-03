@@ -105,6 +105,49 @@ def test_load_assay_json(tmp_path: Path) -> None:
     assert require_interval_minutes(config, override=5.0) == 5.0
 
 
+def test_default_max_onset_when_analysis_omitted(tmp_path: Path) -> None:
+    from transfection.core.assay import DEFAULT_MAX_ONSET_MINUTES
+
+    path = tmp_path / "assay.json"
+    path.write_text(
+        json.dumps(
+            {
+                "assayId": "gene-expression",
+                "assayLabel": "fixture",
+                "info1": {
+                    "name": "fixture",
+                    "dataPath": "",
+                    "folderSubfolderTemplate": "",
+                    "folderFilenameTemplate": "",
+                    "saveTo": "",
+                },
+                "info2": {
+                    "timelapseAmount": 10,
+                    "timelapseUnit": "minute",
+                    "selectedFeatures": [],
+                },
+                "info3": {
+                    "samples": [
+                        {
+                            "channel": "0",
+                            "name": "condA",
+                            "positionStart": "1",
+                            "positionFinish": "1",
+                            "maskChannel": "0",
+                            "signalChannel": "1",
+                            "positions": "1",
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = load_assay(path)
+    assert config.max_onset_minutes == DEFAULT_MAX_ONSET_MINUTES
+    assert DEFAULT_MAX_ONSET_MINUTES == 120.0
+
+
 def test_interval_units() -> None:
     assert parse_interval_minutes(60, "second") == 1.0
     assert parse_interval_minutes(2, "hour") == 120.0

@@ -96,7 +96,7 @@ Studio-compatible JSON object. Canonical Effect Schema: `@lisca/contracts` → `
 | `info3.samples[].signalChannel` | string int | **yes** | Intensity channel index in ROI stacks |
 | `info3.samples[].maskChannel` | string int | **yes** | Channel used for Otsu masks |
 | `info3.samples[].positions` | string | **yes** | Position list/ranges (see below) |
-| `analysis.maxOnsetMinutes` | number | no | Fit onset search cap; default `0` (onset fixed at 0) |
+| `analysis.maxOnsetMinutes` | number | no | Fit onset search cap; default **`120`**; set `0` to fix onset at 0 |
 
 ### Studio fields (keep for parity; unused by this CLI)
 
@@ -153,7 +153,7 @@ Comma-separated tokens. Ranges are **inclusive** on both ends (Studio semantics)
     ]
   },
   "analysis": {
-    "maxOnsetMinutes": 0
+    "maxOnsetMinutes": 120
   }
 }
 ```

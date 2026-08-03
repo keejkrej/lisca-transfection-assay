@@ -45,7 +45,8 @@ def fit(
             min=0.0,
             help=(
                 "Cap on second-pass translation_onset candidates (minutes). "
-                "Default: assay.json analysis.maxOnsetMinutes, else 0 (onset fixed at 0)."
+                "Default: assay.json analysis.maxOnsetMinutes, else 120. "
+                "0 keeps onset fixed at 0."
             ),
         ),
     ] = None,

@@ -21,9 +21,10 @@ def plot_auc(
         Path,
         typer.Argument(
             exists=True,
-            dir_okay=False,
+            file_okay=True,
+            dir_okay=True,
             metavar="AUC_CSV",
-            help="AUC summary CSV from transfection auc (or workspace path with results/auc.csv).",
+            help="AUC summary CSV, or workspace root containing results/auc.csv.",
         ),
     ],
     output: Annotated[

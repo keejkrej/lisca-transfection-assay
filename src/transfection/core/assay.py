@@ -19,6 +19,9 @@ from transfection.core.slide import (
 )
 
 ASSAY_FILENAME = "assay.json"
+# Default second-pass translation-onset search cap (minutes) when
+# analysis.maxOnsetMinutes is omitted. Explicit 0 still means onset fixed at 0.
+DEFAULT_MAX_ONSET_MINUTES = 120.0
 
 
 @dataclass(frozen=True)
@@ -38,8 +41,8 @@ def resolve_assay_path(workspace: Path, assay: Path | None = None) -> Path:
     return assay.expanduser().resolve()
 
 
-def load_assay(path: Path) -> AssayConfig:
-    path = path.expanduser().resolve()
+def load_assay(path: Path | str) -> AssayConfig:
+    path = Path(path).expanduser().resolve()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -141,7 +144,7 @@ def _parse_assay(raw: dict[str, Any], *, path: Path) -> AssayConfig:
     )
 
     analysis = raw.get("analysis") if isinstance(raw.get("analysis"), dict) else {}
-    max_onset = 0.0
+    max_onset = DEFAULT_MAX_ONSET_MINUTES
     if isinstance(analysis, dict) and analysis.get("maxOnsetMinutes") is not None:
         try:
             max_onset = float(analysis["maxOnsetMinutes"])
