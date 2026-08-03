@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Single-panel trace plots for one slide channel across all positions.
 
-Use when slide.json maps every position to a single slide channel (no subplot grid).
+Use when assay.json maps every position to a single sample/slide channel (no subplot grid).
 Writes the same PNG names as plot-timeseries / plot-fit trace output under results/.
 """
 

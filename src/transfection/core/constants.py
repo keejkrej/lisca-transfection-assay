@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import matplotlib as mpl
 
-HELP = "Microscopy ROI pipelines: slide mapping, segmentation masks, and timeseries metrics."
+HELP = (
+    "Transfection analysis stages for LiSCA workspaces (assay.json + roi/). "
+    "CLI + agent driven; parity goal source for Studio (assayId gene-expression) in crates/lisca."
+)
 PROG_NAME = "transfection"
 TIMESERIES_DIRNAME = "timeseries"
 RESULTS_DIRNAME = "results"

@@ -63,6 +63,7 @@ try {
     Write-Host ""
     Write-Host "Run transfection with:"
     Write-Host "  .\$([IO.Path]::Combine('.uv', 'uv.exe')) run transfection ..."
+    Write-Host "Schema / stages: AGENTS.md"
 } catch {
     Write-Host $_.Exception.Message -ForegroundColor Red
     $installExitCode = 1

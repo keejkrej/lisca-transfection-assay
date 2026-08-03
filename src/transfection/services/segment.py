@@ -10,9 +10,10 @@ from typing import Callable
 
 from transfection.core import (
     SlideChannelMapping,
+    SlideMapping,
     compute_roi_mask_stack,
     default_mask_path,
-    load_slide_mapping,
+    load_assay_for_workspace,
     position_dir,
     read_position_index,
     validate_channel_index,
@@ -121,7 +122,7 @@ def _position_tasks(
 def run_slide_segmentation(
     workspace: Path,
     *,
-    sample: Path,
+    mapping: SlideMapping,
     variation_radius: int = 2,
     gaussian_sigma: float = 1.0,
     force: bool = False,
@@ -136,8 +137,7 @@ def run_slide_segmentation(
         raise ValueError(f"--gaussian-sigma must be >= 0, got {gaussian_sigma}")
 
     workspace = workspace.resolve()
-    slide_path = sample.resolve()
-    slide_positions = load_slide_mapping(slide_path)
+    slide_positions = mapping
     channel_order = [slide_channel for slide_channel, _ in slide_positions.items()]
     tasks = _position_tasks(
         workspace,
@@ -147,7 +147,7 @@ def run_slide_segmentation(
         force=force,
     )
     if not tasks:
-        raise ValueError(f"{slide_path} defines no valid positions")
+        raise ValueError("assay mapping defines no valid positions")
 
     skipped_positions: dict[int, list[int]] = defaultdict(list)
     written_by_channel: dict[int, tuple[Path, int]] = {}
@@ -186,10 +186,10 @@ def run_slide_segmentation(
                 for slide_channel, positions in sorted(skipped_positions.items())
             )
             raise ValueError(
-                f"No ROI directories found for positions in {slide_path}. "
+                f"No ROI directories found for positions in assay mapping. "
                 f"Skipped positions: {skipped_summary}"
             )
-        raise ValueError(f"{slide_path} defines no valid positions")
+        raise ValueError("assay mapping defines no valid positions")
 
     return SlideSegmentationRunResult(
         written_outputs=written_outputs,
@@ -214,16 +214,19 @@ def format_skipped_positions_message(skipped_positions: dict[int, list[int]]) ->
 def run_segment(
     *,
     workspace: Path,
-    sample: Path,
+    assay: Path | None = None,
+    mapping: SlideMapping | None = None,
     variation_radius: int = 2,
     gaussian_sigma: float = 1.0,
     force: bool = False,
     on_mask_written: MaskWrittenCallback | None = None,
     jobs: int = 1,
 ) -> SlideSegmentationRunResult:
+    if mapping is None:
+        mapping = load_assay_for_workspace(workspace, assay).mapping
     return run_slide_segmentation(
         workspace,
-        sample=sample,
+        mapping=mapping,
         variation_radius=variation_radius,
         gaussian_sigma=gaussian_sigma,
         force=force,

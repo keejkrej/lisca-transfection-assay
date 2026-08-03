@@ -1,7 +1,7 @@
 [project]
 name = "transfection"
 version = "0.1.3"
-description = "Microscopy ROI extraction, slide mapping, and timeseries metrics."
+description = "Transfection analysis stages for LiSCA workspaces (assay.json + roi/)."
 requires-python = ">=3.12"
 dependencies = [
   "imageio",
@@ -25,3 +25,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/transfection"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

@@ -14,7 +14,7 @@ from transfection.services.segment import (
 
 NAME = "segment"
 HELP = (
-    "Segment each mapped ROI channel with variation filter -> Gaussian filter -> Otsu, "
+    "Segment each mapped ROI with variation → Gaussian → Otsu using assay.json sample rows, "
     "and write per-frame mask TIFFs under <workspace>/mask/PosN/."
 )
 
@@ -28,23 +28,19 @@ def segment(
             file_okay=False,
             dir_okay=True,
             metavar="WORKSPACE",
-            help="Workspace containing roi/PosN/index.json and Roi*.tif files.",
+            help="Workspace with assay.json and roi/PosN/.",
         ),
     ],
-    sample: Annotated[
-        Path,
+    assay: Annotated[
+        Path | None,
         typer.Option(
-            "--sample",
+            "--assay",
             exists=True,
             file_okay=True,
             dir_okay=False,
-            help=(
-                "Microscopy slide mapping JSON per slide_channel: positions, signal_channel, mask_channel, "
-                "and sample_name. "
-                "Masks are written for every mapped position and ROI."
-            ),
+            help="Path to assay.json (default: <workspace>/assay.json).",
         ),
-    ],
+    ] = None,
     variation_radius: Annotated[
         int,
         typer.Option(
@@ -74,13 +70,13 @@ def segment(
         typer.Option(
             "--jobs",
             min=1,
-            help="Number of worker processes to use across per-position segmentations.",
+            help="Worker processes across per-position segmentations.",
         ),
     ] = 1,
 ) -> None:
     result = run_segment(
         workspace=workspace,
-        sample=sample,
+        assay=assay,
         variation_radius=variation_radius,
         gaussian_sigma=gaussian_sigma,
         force=force,

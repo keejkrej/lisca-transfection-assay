@@ -7,15 +7,14 @@ import typer
 
 from transfection import core as paths
 from transfection.app import app
+from transfection.core import load_assay_for_workspace, require_interval_minutes
 from transfection.services.fit import format_written_fit_csv_message, run_fit
 
 NAME = "fit"
 HELP = (
-    "Fit every metrics CSV in <workspace>/timeseries/ to y=intensity_offset + "
-    "expression_amplitude * (exp(-protein_decay_rate*t) - exp(-mrna_decay_rate*t)), "
-    f"where t is minutes from t * --interval. translation_onset is fixed at 0 unless "
-    f"--max-onset-minutes enables second-pass onset search. "
-    f"Writes <workspace>/{paths.RESULTS_DIRNAME}/fit.csv and fit.xlsx."
+    "Fit timeseries metrics to the two-exponential transfection kinetic model and write "
+    f"<workspace>/{paths.RESULTS_DIRNAME}/fit.csv and fit.xlsx. "
+    "Interval and max onset default from assay.json when flags are omitted."
 )
 
 
@@ -28,48 +27,56 @@ def fit(
             file_okay=False,
             dir_okay=True,
             metavar="WORKSPACE",
-            help=f"Workspace with {paths.TIMESERIES_DIRNAME}/ containing ROI metrics CSV files.",
+            help=f"Workspace with {paths.TIMESERIES_DIRNAME}/ and assay.json.",
         ),
     ],
     interval: Annotated[
-        float,
+        float | None,
         typer.Option(
             "--interval",
             min=0.0,
-            help=(
-                "Frame interval in minutes used to convert t into time for fitting "
-                "y=intensity_offset + expression_amplitude * "
-                "(exp(-protein_decay_rate*t) - exp(-mrna_decay_rate*t))."
-            ),
+            help="Frame interval in minutes. Default: assay.json info2.timelapseAmount/Unit.",
         ),
-    ],
+    ] = None,
     max_onset_minutes: Annotated[
-        float,
+        float | None,
         typer.Option(
             "--max-onset-minutes",
             min=0.0,
             help=(
-                "Cap on second-pass candidate translation_onset values in minutes. "
-                "0 keeps translation_onset fixed at 0."
+                "Cap on second-pass translation_onset candidates (minutes). "
+                "Default: assay.json analysis.maxOnsetMinutes, else 0 (onset fixed at 0)."
             ),
         ),
-    ] = 0.0,
+    ] = None,
+    assay: Annotated[
+        Path | None,
+        typer.Option(
+            "--assay",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            help="Path to assay.json (default: <workspace>/assay.json).",
+        ),
+    ] = None,
     jobs: Annotated[
         int,
         typer.Option(
             "--jobs",
             min=1,
-            help=(
-                "Number of worker processes to use across independent trace fits. "
-                "Use transfection-analyze.ps1 for a CPU-based default."
-            ),
+            help="Worker processes across independent trace fits.",
         ),
     ] = 1,
 ) -> None:
+    config = load_assay_for_workspace(workspace, assay)
+    resolved_interval = require_interval_minutes(config, override=interval)
+    resolved_onset = (
+        config.max_onset_minutes if max_onset_minutes is None else max_onset_minutes
+    )
     resolved_output_csv = run_fit(
         workspace=workspace,
-        interval=interval,
-        max_onset_minutes=max_onset_minutes,
+        interval=resolved_interval,
+        max_onset_minutes=resolved_onset,
         jobs=jobs,
     )
     typer.echo(format_written_fit_csv_message(resolved_output_csv))

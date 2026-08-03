@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-pause_to_exit() {
-  if [[ -t 0 ]]; then
-    read -r -p "Press Enter to exit..." _ || true
-  fi
-}
-trap pause_to_exit EXIT
-
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 UV_DIR="$ROOT/.uv"
 
@@ -36,11 +29,8 @@ fi
 echo "Installing package..."
 "$UV_BIN" sync --directory "$ROOT"
 
-for helper in transfection-analyze.sh transfection-slide.sh; do
-    if [[ -f "$ROOT/$helper" ]]; then chmod +x "$ROOT/$helper"; fi
-done
-
 echo "Done."
 echo ""
 echo "Run transfection with:"
-echo "  $UV_BIN run --directory "$ROOT" transfection ..."
+echo "  $UV_BIN run --directory $ROOT transfection ..."
+echo "Schema / stages: AGENTS.md"

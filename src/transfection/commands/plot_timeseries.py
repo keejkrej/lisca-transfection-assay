@@ -7,6 +7,11 @@ import typer
 
 from transfection import core as paths
 from transfection.app import app
+from transfection.core import (
+    infer_workspace_for_timeseries_dir,
+    load_assay_for_workspace,
+    require_interval_minutes,
+)
 from transfection.services.plot_timeseries import (
     format_written_timeseries_plot_message,
     run_plot_timeseries,
@@ -14,12 +19,9 @@ from transfection.services.plot_timeseries import (
 
 NAME = "plot-timeseries"
 HELP = (
-    f"Plot every metrics CSV in a {paths.TIMESERIES_DIRNAME}/ folder as subplots in PNGs "
-    f"(default: sibling {paths.RESULTS_DIRNAME}/traces.png, traces_shared_y.png, "
-    "area.png, and area_shared_y.png). "
-    "X axis is frame index times --interval (minutes per frame). "
-    "Y limits use 1–99% percentiles per panel; each shared-y figure uses one "
-    "y range (min of panel 1% values, max of panel 99% values)."
+    f"Plot metrics CSVs in a {paths.TIMESERIES_DIRNAME}/ folder as PNG grids under "
+    f"{paths.RESULTS_DIRNAME}/ (traces, area, shared-y variants). "
+    "X axis is frame index × interval (minutes)."
 )
 
 
@@ -34,18 +36,18 @@ def plot_timeseries(
             metavar="TIMESERIES_DIR",
             help=(
                 f"Directory of per-channel metrics CSVs (typically <workspace>/{paths.TIMESERIES_DIRNAME}). "
-                f"Default PNG is written alongside AUC/fit outputs under <workspace>/{paths.RESULTS_DIRNAME}/."
+                f"Or pass the workspace root if it contains {paths.TIMESERIES_DIRNAME}/."
             ),
         ),
     ],
     interval: Annotated[
-        float,
+        float | None,
         typer.Option(
             "--interval",
             min=0.0,
-            help="Minutes per frame index in metrics CSVs; x axis is t * interval (same as auc/fit).",
+            help="Minutes per frame. Default: parent workspace assay.json info2.",
         ),
-    ],
+    ] = None,
     output: Annotated[
         Path | None,
         typer.Option(
@@ -53,7 +55,7 @@ def plot_timeseries(
             "-o",
             help=(
                 f"Primary output PNG path. Default: <workspace>/{paths.RESULTS_DIRNAME}/traces.png "
-                "with a companion traces_shared_y.png for unified y limits."
+                "with companion shared-y / area plots."
             ),
         ),
     ] = None,
@@ -65,10 +67,30 @@ def plot_timeseries(
             help="Number of subplot columns in the output grid.",
         ),
     ] = 3,
+    assay: Annotated[
+        Path | None,
+        typer.Option(
+            "--assay",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            help="Path to assay.json for interval/labels (default: <workspace>/assay.json).",
+        ),
+    ] = None,
 ) -> None:
+    workspace = (
+        metrics_dir
+        if (metrics_dir / paths.TIMESERIES_DIRNAME).is_dir()
+        else infer_workspace_for_timeseries_dir(metrics_dir)
+    )
+    ts_dir = metrics_dir if metrics_dir.name == paths.TIMESERIES_DIRNAME else workspace / paths.TIMESERIES_DIRNAME
+    if not ts_dir.is_dir():
+        ts_dir = metrics_dir
+    config = load_assay_for_workspace(workspace, assay)
+    resolved = require_interval_minutes(config, override=interval)
     written_plots = run_plot_timeseries(
-        metrics_dir=metrics_dir,
-        interval=interval,
+        metrics_dir=ts_dir,
+        interval=resolved,
         output=output,
         columns=columns,
     )

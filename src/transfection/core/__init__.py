@@ -1,3 +1,13 @@
+from transfection.core.assay import (
+    ASSAY_FILENAME,
+    AssayConfig,
+    build_slide_mapping_from_samples,
+    load_assay,
+    load_assay_for_workspace,
+    parse_interval_minutes,
+    require_interval_minutes,
+    resolve_assay_path,
+)
 from transfection.core.constants import (
     DEFAULT_QUARTILES,
     FIGURE_DPI,
@@ -34,14 +44,9 @@ from transfection.core.segment import compute_roi_mask_stack, write_mask_tif
 from transfection.core.slide import (
     SlideChannelMapping,
     SlideMapping,
-    load_slide_mapping,
     parse_position_spec,
     parse_position_token,
-    parse_slide_mapping_spec,
-    resolve_slide_path,
-    serialize_slide_mapping,
     validate_slide_mapping,
-    write_slide_mapping,
 )
 from transfection.core.workspace import (
     boxplot_tick_labels,
@@ -57,6 +62,8 @@ from transfection.core.workspace import (
 )
 
 __all__ = [
+    "ASSAY_FILENAME",
+    "AssayConfig",
     "DEFAULT_QUARTILES",
     "FIGURE_DPI",
     "FIGURE_SIZE_IN",
@@ -70,6 +77,7 @@ __all__ = [
     "SlideMapping",
     "boxplot_tick_labels",
     "boxplot_x_axis_label",
+    "build_slide_mapping_from_samples",
     "compute_masked_roi_metrics",
     "compute_roi_mask_stack",
     "compute_roi_metrics",
@@ -78,22 +86,23 @@ __all__ = [
     "infer_workspace_for_plot_csv",
     "infer_workspace_for_timeseries_dir",
     "is_workspace_metrics_timeseries_csv",
+    "load_assay",
+    "load_assay_for_workspace",
     "load_slide_channel_labels",
-    "load_slide_mapping",
     "load_timeseries_csv",
+    "parse_interval_minutes",
     "parse_position_spec",
     "parse_position_token",
     "parse_quartiles",
-    "parse_slide_mapping_spec",
     "position_dir",
     "position_mask_dir",
     "quantile_column_name",
     "read_mask_stack",
     "read_position_index",
     "read_roi_stack",
-    "resolve_slide_path",
+    "require_interval_minutes",
+    "resolve_assay_path",
     "roi_frame_2d",
-    "serialize_slide_mapping",
     "trace_color_alpha_from_fluor_name",
     "validate_channel_index",
     "validate_slide_mapping",
@@ -102,5 +111,4 @@ __all__ = [
     "workspace_timeseries_dir",
     "write_mask_tif",
     "write_metrics_csv",
-    "write_slide_mapping",
 ]

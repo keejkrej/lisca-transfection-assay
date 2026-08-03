@@ -12,8 +12,9 @@ import numpy as np
 
 from transfection.core import (
     RoiCrop,
+    SlideMapping,
     default_mask_path,
-    load_slide_mapping,
+    load_assay_for_workspace,
     position_dir,
     read_mask_stack,
     read_position_index,
@@ -263,7 +264,7 @@ def _position_check_segment_task(
 
 def _position_tasks(
     workspace: Path,
-    slide_positions,
+    slide_positions: SlideMapping,
     *,
     output_dir: Path,
     fps: float,
@@ -292,7 +293,8 @@ def format_written_check_segment_video_message(video: CheckSegmentVideo) -> str:
 def run_check_segment(
     *,
     workspace: Path,
-    sample: Path,
+    assay: Path | None = None,
+    mapping: SlideMapping | None = None,
     output: Path | None = None,
     fps: float = 6.0,
     force: bool = False,
@@ -306,8 +308,9 @@ def run_check_segment(
 
     workspace = workspace.resolve()
     output_dir = default_output_dir(workspace) if output is None else output.resolve()
-    slide_path = sample.resolve()
-    slide_positions = load_slide_mapping(slide_path)
+    if mapping is None:
+        mapping = load_assay_for_workspace(workspace, assay).mapping
+    slide_positions = mapping
     tasks = _position_tasks(
         workspace,
         slide_positions,
@@ -316,7 +319,7 @@ def run_check_segment(
         force=force,
     )
     if not tasks:
-        raise ValueError(f"{slide_path} defines no valid positions")
+        raise ValueError("assay mapping defines no valid positions")
 
     skipped_positions: dict[int, list[int]] = defaultdict(list)
     videos: list[CheckSegmentVideo] = []
@@ -348,7 +351,7 @@ def run_check_segment(
                 for slide_channel, positions in sorted(skipped_positions.items())
             )
             raise ValueError(
-                f"No check-segment videos produced for positions in {slide_path}. "
+                f"No check-segment videos produced for positions in assay mapping. "
                 f"Skipped positions: {skipped_summary}"
             )
         raise ValueError("No check-segment videos produced")

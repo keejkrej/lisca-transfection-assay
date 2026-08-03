@@ -14,15 +14,8 @@ from transfection.services.check_segment import (
 
 NAME = "check-segment"
 HELP = (
-    "Overlay mask contours on the ROI TIFF signal and mask channels and write MP4 review videos "
-    "under <workspace>/check-segment/PosN/. "
-    "For manual mask QA; not part of transfection-analyze."
-)
-
-SAMPLE_HELP = (
-    "Microscopy slide mapping JSON per slide_channel: positions, signal_channel, mask_channel, "
-    "and sample_name. "
-    "Review videos are written for every mapped position and ROI (mask and signal channels)."
+    "Overlay mask contours on ROI TIFF signal/mask channels and write MP4 review videos "
+    "under <workspace>/check-segment/PosN/. Manual QA only; not part of pipeline."
 )
 
 
@@ -35,19 +28,19 @@ def check_segment(
             file_okay=False,
             dir_okay=True,
             metavar="WORKSPACE",
-            help="Workspace containing roi/PosN/index.json, Roi*.tif files, and segment masks under mask/.",
+            help="Workspace with assay.json, roi/, and mask/.",
         ),
     ],
-    sample: Annotated[
-        Path,
+    assay: Annotated[
+        Path | None,
         typer.Option(
-            "--sample",
+            "--assay",
             exists=True,
             file_okay=True,
             dir_okay=False,
-            help=SAMPLE_HELP,
+            help="Path to assay.json (default: <workspace>/assay.json).",
         ),
-    ],
+    ] = None,
     output: Annotated[
         Path | None,
         typer.Option(
@@ -79,13 +72,13 @@ def check_segment(
         typer.Option(
             "--jobs",
             min=1,
-            help="Number of worker processes to use across per-position review video generation.",
+            help="Worker processes across per-position review video generation.",
         ),
     ] = 1,
 ) -> None:
     result = run_check_segment(
         workspace=workspace,
-        sample=sample,
+        assay=assay,
         output=output,
         fps=fps,
         force=force,

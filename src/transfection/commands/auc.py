@@ -7,12 +7,14 @@ import typer
 
 from transfection import core as paths
 from transfection.app import app
+from transfection.core import load_assay_for_workspace, require_interval_minutes
 from transfection.services.auc import format_written_auc_csv_message, run_auc
 
 NAME = "auc"
 HELP = (
     "Integrate every metrics CSV in <workspace>/timeseries/ and write "
-    f"<workspace>/{paths.RESULTS_DIRNAME}/auc.csv and auc.xlsx."
+    f"<workspace>/{paths.RESULTS_DIRNAME}/auc.csv and auc.xlsx. "
+    "Frame interval from --interval or assay.json info2.timelapseAmount/Unit."
 )
 
 
@@ -25,17 +27,29 @@ def auc(
             file_okay=False,
             dir_okay=True,
             metavar="WORKSPACE",
-            help=f"Workspace with {paths.TIMESERIES_DIRNAME}/ containing ROI metrics CSV files.",
+            help=f"Workspace with {paths.TIMESERIES_DIRNAME}/ and assay.json (for default interval).",
         ),
     ],
     interval: Annotated[
-        float,
+        float | None,
         typer.Option(
             "--interval",
             min=0.0,
-            help="Frame interval in minutes used to convert t into time before integration.",
+            help="Frame interval in minutes. Default: assay.json info2.timelapseAmount/Unit.",
         ),
-    ],
+    ] = None,
+    assay: Annotated[
+        Path | None,
+        typer.Option(
+            "--assay",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            help="Path to assay.json (default: <workspace>/assay.json).",
+        ),
+    ] = None,
 ) -> None:
-    resolved_output_csv = run_auc(workspace=workspace, interval=interval)
+    config = load_assay_for_workspace(workspace, assay)
+    resolved = require_interval_minutes(config, override=interval)
+    resolved_output_csv = run_auc(workspace=workspace, interval=resolved)
     typer.echo(format_written_auc_csv_message(resolved_output_csv))

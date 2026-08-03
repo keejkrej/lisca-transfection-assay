@@ -3,11 +3,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from transfection.core.assay import load_assay_for_workspace
 from transfection.core.constants import RESULTS_DIRNAME, TIMESERIES_DIRNAME
-from transfection.core.slide import load_slide_mapping
 
 _TRACE_ALPHA = 0.1
 _WORKSPACE_METRICS_STEM = re.compile(r"^sc\d+_ch\d+$")
+
 
 def trace_color_alpha_from_fluor_name(name: str) -> tuple[str, float]:
     haystack = name.lower()
@@ -67,11 +68,15 @@ def infer_workspace_for_timeseries_dir(timeseries_dir: Path) -> Path:
 
 
 def load_slide_channel_labels(workspace: Path) -> dict[int, str]:
-    slide_path = workspace / "slide.json"
-    if not slide_path.is_file():
+    """Sample names keyed by slide channel, from workspace assay.json (empty if missing)."""
+    assay_path = workspace / "assay.json"
+    if not assay_path.is_file():
         return {}
-    mapping = load_slide_mapping(slide_path)
-    return {slide_channel: entry.sample_name for slide_channel, entry in mapping.items()}
+    try:
+        config = load_assay_for_workspace(workspace)
+    except ValueError:
+        return {}
+    return {slide_channel: entry.sample_name for slide_channel, entry in config.mapping.items()}
 
 
 def boxplot_tick_labels(
