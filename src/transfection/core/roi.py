@@ -26,6 +26,8 @@ class PositionIndex:
     time_count: int
     channel_count: int
     z_count: int
+    # Source acquisition time indices per T plane (CSV `t`); default 0..time_count-1.
+    time_indices: tuple[int, ...]
     rois: tuple[RoiCrop, ...]
 
 
@@ -70,14 +72,31 @@ def read_position_index(pos_dir: Path) -> PositionIndex:
     if not rois:
         raise ValueError(f"No ROI entries found in {index_path}")
 
+    time_count = int(raw.get("timeCount", 1))
+    time_indices = _resolve_time_indices(raw.get("timeIndices"), time_count=time_count, index_path=index_path)
+
     return PositionIndex(
         position=int(raw.get("position", 0)),
         axis_order=axis_order,
-        time_count=int(raw.get("timeCount", 1)),
+        time_count=time_count,
         channel_count=int(raw.get("channelCount", 1)),
         z_count=int(raw.get("zCount", 1)),
+        time_indices=time_indices,
         rois=tuple(rois),
     )
+
+
+def _resolve_time_indices(raw: object, *, time_count: int, index_path: Path) -> tuple[int, ...]:
+    if raw is None:
+        return tuple(range(time_count))
+    if not isinstance(raw, list):
+        raise ValueError(f"{index_path}: timeIndices must be an array")
+    indices = tuple(int(value) for value in raw)
+    if len(indices) != time_count:
+        raise ValueError(
+            f"{index_path}: timeIndices length {len(indices)} does not match timeCount {time_count}"
+        )
+    return indices
 
 
 def validate_channel_index(index: PositionIndex, channel: int) -> None:

@@ -73,7 +73,7 @@ segment → timeseries → plot-timeseries → auc → plot-auc → fit → plot
 | --- | --- |
 | `assay.json` | **Required** experiment config (schema below) |
 | `bbox/PosN.csv` | Site boxes from Aligner (input to pyama / `lisca-crop`) |
-| `roi/PosN/` | Cropped ROI stacks + `index.json` (from pyama / `lisca-crop` / Studio) |
+| `roi/PosN/` | Cropped ROI stacks + `index.json` (from pyama / `lisca-crop` / Studio). Optional `timeIndices` lists source acquisition frame indices per T plane (e.g. downsampled every 6th frame → `[0,6,12,…]`); timeseries CSV `t` uses these, then `t * interval` is real minutes. |
 | `mask/PosN/` | Segmentation masks (written by `segment`) |
 | `timeseries/` | `sc{S}_ch{C}.csv` metrics (written by `timeseries`) |
 | `results/` | `auc.csv`, `fit.csv`, plots |

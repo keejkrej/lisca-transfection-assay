@@ -46,9 +46,9 @@ def compute_roi_metrics(
             raise ValueError(f"Missing ROI TIFF referenced by index.json: {roi_path}")
 
         stack = read_roi_stack(roi_path, roi.shape)
-        for timepoint in range(index.time_count):
+        for stack_t in range(index.time_count):
             patch = np.asarray(
-                roi_frame_2d(stack, index.axis_order, timepoint=timepoint, channel=channel),
+                roi_frame_2d(stack, index.axis_order, timepoint=stack_t, channel=channel),
                 dtype=np.uint64,
             )
             quantile_values = np.quantile(patch, quartiles, method="linear")
@@ -61,7 +61,7 @@ def compute_roi_metrics(
                 {
                     "pos": index.position,
                     "channel": channel,
-                    "t": timepoint,
+                    "t": index.time_indices[stack_t],
                     "roi": roi.roi,
                     "x": roi.x,
                     "y": roi.y,
@@ -108,12 +108,12 @@ def compute_masked_roi_metrics(
             frame_shape=tuple(int(value) for value in first_frame.shape),
         )
 
-        for timepoint in range(index.time_count):
+        for stack_t in range(index.time_count):
             frame = np.asarray(
-                roi_frame_2d(stack, index.axis_order, timepoint=timepoint, channel=channel),
+                roi_frame_2d(stack, index.axis_order, timepoint=stack_t, channel=channel),
                 dtype=np.float64,
             )
-            mask = mask_stack[timepoint]
+            mask = mask_stack[stack_t]
             foreground = frame[mask]
             background_pixels = frame[~mask]
             area = int(mask.sum())
@@ -123,7 +123,7 @@ def compute_masked_roi_metrics(
                 {
                     "pos": index.position,
                     "channel": channel,
-                    "t": timepoint,
+                    "t": index.time_indices[stack_t],
                     "roi": roi.roi,
                     "x": roi.x,
                     "y": roi.y,
