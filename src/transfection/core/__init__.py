@@ -13,11 +13,14 @@ from transfection.core.assay import (
 from transfection.core.constants import (
     DEFAULT_QUARTILES,
     FIGURE_DPI,
+    FIGURE_SIZE_GRID_IN,
     FIGURE_SIZE_IN,
+    FIGURE_SIZE_SINGLE_IN,
     HELP,
     PROG_NAME,
     RESULTS_DIRNAME,
     TIMESERIES_DIRNAME,
+    figure_size_for_panels,
 )
 from transfection.core.mask import (
     default_mask_path,
@@ -70,7 +73,10 @@ __all__ = [
     "AssayConfig",
     "DEFAULT_QUARTILES",
     "FIGURE_DPI",
+    "FIGURE_SIZE_GRID_IN",
     "FIGURE_SIZE_IN",
+    "FIGURE_SIZE_SINGLE_IN",
+    "figure_size_for_panels",
     "HELP",
     "PROG_NAME",
     "RESULTS_DIRNAME",

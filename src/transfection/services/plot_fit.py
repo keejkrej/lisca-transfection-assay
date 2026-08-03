@@ -181,7 +181,7 @@ def write_fit_boxplot(
         for slide_channel in slide_channels
     ]
 
-    fig, ax = plt.subplots(figsize=plot_layout.FIGURE_SIZE_IN)
+    fig, ax = plt.subplots(figsize=plot_layout.FIGURE_SIZE_SINGLE_IN)
     ax.boxplot(
         grouped_values,
         tick_labels=boxplot_tick_labels(slide_channels, trace_counts, slide_channel_names),
@@ -269,7 +269,12 @@ def write_fitted_trace_grid(
     ylim_fn,
 ) -> None:
     rows = math.ceil(len(panels) / columns)
-    fig, axes = plt.subplots(rows, columns, squeeze=False, figsize=plot_layout.FIGURE_SIZE_IN)
+    fig, axes = plt.subplots(
+        rows,
+        columns,
+        squeeze=False,
+        figsize=plot_layout.figure_size_for_panels(len(panels)),
+    )
     axes_flat = axes.flatten()
     fit_lookup = (
         fit_df.loc[fit_df["success"]]

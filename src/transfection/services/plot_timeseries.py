@@ -203,7 +203,12 @@ def write_subplot_grid(
     slide_channel_names: dict[int, str],
 ) -> None:
     rows = math.ceil(len(panels) / columns)
-    fig, axes = plt.subplots(rows, columns, squeeze=False, figsize=plot_layout.FIGURE_SIZE_IN)
+    fig, axes = plt.subplots(
+        rows,
+        columns,
+        squeeze=False,
+        figsize=plot_layout.figure_size_for_panels(len(panels)),
+    )
     axes_flat = axes.flatten()
 
     for index, (ax, (csv_path, df)) in enumerate(zip(axes_flat, panels)):

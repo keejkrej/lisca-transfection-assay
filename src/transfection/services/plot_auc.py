@@ -90,7 +90,7 @@ def write_auc_boxplot(
         for slide_channel in slide_channels
     ]
 
-    fig, ax = plt.subplots(figsize=plot_layout.FIGURE_SIZE_IN)
+    fig, ax = plt.subplots(figsize=plot_layout.FIGURE_SIZE_SINGLE_IN)
     ax.boxplot(
         grouped_values,
         tick_labels=boxplot_tick_labels(slide_channels, trace_counts, slide_channel_names),
