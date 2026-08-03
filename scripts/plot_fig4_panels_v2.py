@@ -4,11 +4,12 @@
 Panels:
   A - GFP tile crop with bounding boxes
   B - single-cell GFP fluorescence time series with median trace
-  C - expression rate vs translation onset (computed from timeseries half-max), log-log
+  C - expression rate vs onset time (half-max proxy from timeseries), log-log
   D - expression rate vs mRNA lifetime, log-log
 
-Panel C replaces the (all-zero) translation_onset column from fit.csv with an
-onset computed per cell from the timeseries: first time t (minutes) where the
+Panel C replaces the (all-zero) translation_onset / onset-time column from
+fit.csv with an onset time computed per cell from the timeseries: first time t
+(minutes) where the
 corrected fluorescence reaches 0.5 * max(corrected) for that cell.
 """
 
@@ -427,7 +428,7 @@ def plot_log_scatter_with_marginals(
 
 
 def compute_onset_minutes(timeseries_df: pd.DataFrame) -> pd.DataFrame:
-    """Per-cell onset: first t (minutes) where corrected >= 0.5 * max(corrected)."""
+    """Per-cell onset time (t0 proxy): first t (min) where corrected >= 0.5 * max."""
     records = []
     for (pos, roi), trace in timeseries_df.groupby(["pos", "roi"], sort=True):
         corrected = trace["corrected"].astype(float).to_numpy(dtype=float)
@@ -468,8 +469,8 @@ def plot_onset_correlation_panel(
         x_hours[mask],
         y_rate[mask],
         color="#1f77b4",
-        xlabel="translation onset (h)",
-        ylabel="eGFP expression rate",
+        xlabel="onset time (h)",
+        ylabel="expression rate",
     )
 
 
@@ -485,7 +486,7 @@ def plot_lifetime_correlation_panel(ax, fit_df: pd.DataFrame) -> None:
         y_rate[mask],
         color="#d62728",
         xlabel="mRNA lifetime (h)",
-        ylabel="eGFP expression rate",
+        ylabel="expression rate",
     )
 
 

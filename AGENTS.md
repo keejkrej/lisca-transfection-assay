@@ -23,6 +23,21 @@ There is **no** interactive wizard and **no** `slide.json` / compact mapping DSL
 
 Studio wire id is **`transfection`**. Prefer that when writing workspaces Studio or Rust will open. Stages still run if `assayId` is missing or another string (mapping comes from `info3`).
 
+## Kinetic terminology (Müller et al. 2024)
+
+Fits use the **basic translation–degradation model only** (no protein maturation).
+
+| Display label | CSV column | Paper |
+| --- | --- | --- |
+| onset time | `translation_onset` | \(t_0\) |
+| expression rate | `expression_rate` | \(m_0 k_{TL}\) |
+| mRNA lifetime | `mrna_lifetime` | \(\tau_\mathrm{mRNA}\) |
+| protein lifetime | `protein_lifetime` | \(\tau_\mathrm{EGFP}\) |
+| intensity offset | `intensity_offset` | baseline nuisance |
+
+Prefer **expression rate** over legacy “transfection efficiency” for \(m_0 k_{TL}\).
+CSV column names stay stable for parity with Rust/`lisca-analyze`.
+
 ## CLI
 
 ```sh
@@ -96,7 +111,7 @@ Studio-compatible JSON object. Canonical Effect Schema: `@lisca/contracts` → `
 | `info3.samples[].signalChannel` | string int | **yes** | Intensity channel index in ROI stacks |
 | `info3.samples[].maskChannel` | string int | **yes** | Channel used for Otsu masks |
 | `info3.samples[].positions` | string | **yes** | Position list/ranges (see below) |
-| `analysis.maxOnsetMinutes` | number | no | Fit onset search cap; default **`120`**; set `0` to fix onset at 0 |
+| `analysis.maxOnsetMinutes` | number | no | Fit **onset time** (\(t_0\)) search cap; default **`120`**; set `0` to fix onset at 0. Basic model only (no maturation). |
 
 ### Studio fields (keep for parity; unused by this CLI)
 

@@ -22,11 +22,13 @@ from transfection.core import (
     trace_color_alpha_from_fluor_name,
 )
 
+# Display labels: Müller et al. 2024 basic model (no maturation).
+# CSV column ids keep historical names (translation_onset, expression_rate, …).
 PLOTTED_PARAMETERS = (
     ("intensity_offset", "intensity offset"),
     ("protein_lifetime", "protein lifetime"),
     ("mrna_lifetime", "mRNA lifetime"),
-    ("translation_onset", "translation onset"),
+    ("translation_onset", "onset time"),
     ("expression_rate", "expression rate"),
 )
 FIT_TRACE_PARAMETERS = (
@@ -189,6 +191,9 @@ def write_fit_boxplot(
 
     ax.set_xlabel(boxplot_x_axis_label(slide_channel_names))
     ax.set_ylabel(ylabel)
+    ax.tick_params(axis="x", labelrotation=45)
+    for label in ax.get_xticklabels():
+        label.set_ha("right")
     if log_scale:
         ax.set_yscale("log")
     else:

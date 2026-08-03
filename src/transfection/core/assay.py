@@ -21,7 +21,8 @@ from transfection.core.slide import (
 ASSAY_FILENAME = "assay.json"
 # Defaults when assay.json omits fields (transfection assay only — this package).
 DEFAULT_INTERVAL_MINUTES = 10.0
-# Second-pass translation-onset search cap (minutes). Explicit 0 still means onset fixed at 0.
+# Second-pass onset-time (t0) search cap (minutes). Explicit 0 still means onset fixed at 0.
+# Basic translation–degradation model only (no protein maturation).
 DEFAULT_MAX_ONSET_MINUTES = 120.0
 
 

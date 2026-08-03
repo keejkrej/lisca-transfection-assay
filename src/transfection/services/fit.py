@@ -15,6 +15,10 @@ from transfection.core.export import parallel_xlsx_path, write_csv_and_parallel_
 from transfection.services import auc
 
 
+# Fit CSV columns. Historical ids map to Müller et al. 2024 basic-model terms
+# (no maturation): translation_onset → onset time t0; expression_rate → m0·kTL;
+# intensity_offset is a baseline nuisance, not a kinetic rate; expression_rate
+# is preferred over legacy “transfection_efficiency”.
 OUTPUT_COLUMNS = (
     "slide_channel",
     "pos",
