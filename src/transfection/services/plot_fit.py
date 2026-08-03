@@ -85,15 +85,16 @@ def run_plot_fit(
         written_paths.append(output_plot)
     resolved_timeseries_csvs = infer_timeseries_csvs(resolved_fit_csv)
     fit_trace_plot = default_trace_plot_path(resolved_fit_csv, output)
-    write_fitted_trace_grid(
-        df,
-        resolved_timeseries_csvs,
-        fit_trace_plot,
-        interval=interval,
-        columns=columns,
-        slide_channel_names=slide_channel_names,
+    written_paths.extend(
+        write_fitted_trace_plots(
+            df,
+            resolved_timeseries_csvs,
+            fit_trace_plot,
+            interval=interval,
+            columns=columns,
+            slide_channel_names=slide_channel_names,
+        )
     )
-    written_paths.append(fit_trace_plot)
     return written_paths
 
 
@@ -136,6 +137,10 @@ def default_output_plot_paths(fit_csv: Path, output: Path | None) -> dict[str, P
 def default_trace_plot_path(fit_csv: Path, output: Path | None) -> Path:
     destination_dir = fit_csv.parent if output is None else output.resolve()
     return destination_dir / "traces_fit.png"
+
+
+def default_trace_shared_y_plot_path(primary_plot: Path) -> Path:
+    return primary_plot.with_name(f"{primary_plot.stem}_shared_y.png")
 
 
 def infer_timeseries_csvs(fit_csv: Path) -> list[Path]:
@@ -212,7 +217,7 @@ def fitted_trace_values(times_minutes: np.ndarray, fit_row: pd.Series) -> np.nda
     return predicted
 
 
-def write_fitted_trace_grid(
+def write_fitted_trace_plots(
     fit_df: pd.DataFrame,
     timeseries_csvs: list[Path],
     output_plot: Path,
@@ -220,8 +225,50 @@ def write_fitted_trace_grid(
     interval: float,
     columns: int,
     slide_channel_names: dict[int, str],
+) -> list[Path]:
+    """Write per-panel y-scale `traces_fit.png` and shared-y `traces_fit_shared_y.png`."""
+    panels = [(csv_path, load_timeseries_csv(csv_path)) for csv_path in timeseries_csvs]
+    panel_ylims = [
+        plot_timeseries.percentile_ylim(plot_timeseries.panel_values(df, "corrected"))
+        for _, df in panels
+    ]
+    unified_low = min(lo for lo, _ in panel_ylims)
+    unified_high = max(hi for _, hi in panel_ylims)
+    unified_low, unified_high = plot_timeseries.expand_degenerate_ylim(unified_low, unified_high)
+    shared_y_plot = default_trace_shared_y_plot_path(output_plot)
+
+    write_fitted_trace_grid(
+        fit_df,
+        panels,
+        output_plot,
+        interval=interval,
+        columns=columns,
+        slide_channel_names=slide_channel_names,
+        ylim_fn=lambda i: panel_ylims[i],
+    )
+    write_fitted_trace_grid(
+        fit_df,
+        panels,
+        shared_y_plot,
+        interval=interval,
+        columns=columns,
+        slide_channel_names=slide_channel_names,
+        ylim_fn=lambda _i: (unified_low, unified_high),
+    )
+    return [output_plot, shared_y_plot]
+
+
+def write_fitted_trace_grid(
+    fit_df: pd.DataFrame,
+    panels: list[tuple[Path, pd.DataFrame]],
+    output_plot: Path,
+    *,
+    interval: float,
+    columns: int,
+    slide_channel_names: dict[int, str],
+    ylim_fn,
 ) -> None:
-    rows = math.ceil(len(timeseries_csvs) / columns)
+    rows = math.ceil(len(panels) / columns)
     fig, axes = plt.subplots(rows, columns, squeeze=False, figsize=plot_layout.FIGURE_SIZE_IN)
     axes_flat = axes.flatten()
     fit_lookup = (
@@ -231,8 +278,7 @@ def write_fitted_trace_grid(
     )
     plotted_trace_count = 0
 
-    for ax, csv_path in zip(axes_flat, timeseries_csvs):
-        df = load_timeseries_csv(csv_path)
+    for panel_index, (ax, (csv_path, df)) in enumerate(zip(axes_flat, panels)):
         slide_channel = auc.parse_slide_channel(csv_path)
         trace_color, trace_alpha = trace_color_alpha_from_fluor_name(
             plot_timeseries.trace_naming_haystack(csv_path, slide_channel_names)
@@ -261,12 +307,10 @@ def write_fitted_trace_grid(
         )
         ax.set_xlabel("minutes")
         ax.set_ylabel("corrected intensity")
-        y_low, y_high = plot_timeseries.percentile_ylim(
-            plot_timeseries.panel_values(df, "corrected")
-        )
+        y_low, y_high = ylim_fn(panel_index)
         ax.set_ylim(y_low, y_high)
 
-    for ax in axes_flat[len(timeseries_csvs):]:
+    for ax in axes_flat[len(panels) :]:
         ax.axis("off")
 
     if plotted_trace_count == 0:
