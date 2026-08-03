@@ -88,8 +88,8 @@ Studio-compatible JSON object. Canonical Effect Schema: `@lisca/contracts` → `
 | --- | --- | --- | --- |
 | `assayId` | string | recommended | Studio wire id: `"transfection"` |
 | `assayLabel` | string | recommended | Display label |
-| `info2.timelapseAmount` | number \| null | for default interval | Positive frame step |
-| `info2.timelapseUnit` | `"second"` \| `"minute"` \| `"hour"` | for default interval | Converted to minutes |
+| `info2.timelapseAmount` | number \| null | no (default **10** min) | Positive frame step; general field |
+| `info2.timelapseUnit` | `"second"` \| `"minute"` \| `"hour"` | no | Converted to minutes; default unit `minute` |
 | `info3.samples` | array | **yes** | One row per condition / slide channel |
 | `info3.samples[].channel` | string int | **yes** | Slide-channel key → `sc{N}_…` outputs |
 | `info3.samples[].name` | string | **yes** | Condition label on plots (empty name → row skipped) |
