@@ -525,13 +525,13 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
             continue
         row = row.iloc[0]
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
-        dt = np.maximum(minutes - row["translation_onset"], 0.0)
-        predicted = row["intensity_offset"] + row["expression_amplitude"] * (
+        dt = np.maximum(minutes - row["onset_time"], 0.0)
+        predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
             np.exp(-row["protein_decay_rate"] * dt)
             - np.exp(-row["mrna_decay_rate"] * dt)
         )
         predicted = np.where(
-            minutes < row["translation_onset"], row["intensity_offset"], predicted
+            minutes < row["onset_time"], row["baseline_intensity"], predicted
         )
         ax.plot(minutes, predicted, color="green", alpha=0.1)
     ax.set_ylim(
@@ -554,13 +554,13 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
             continue
         row = row.iloc[0]
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
-        dt = np.maximum(minutes - row["translation_onset"], 0.0)
-        predicted = row["intensity_offset"] + row["expression_amplitude"] * (
+        dt = np.maximum(minutes - row["onset_time"], 0.0)
+        predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
             np.exp(-row["protein_decay_rate"] * dt)
             - np.exp(-row["mrna_decay_rate"] * dt)
         )
         predicted = np.where(
-            minutes < row["translation_onset"], row["intensity_offset"], predicted
+            minutes < row["onset_time"], row["baseline_intensity"], predicted
         )
         ax.plot(minutes, predicted, color="green", alpha=0.1)
     ax.set_ylim(
@@ -583,13 +583,13 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
             continue
         row = row.iloc[0]
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
-        dt = np.maximum(minutes - row["translation_onset"], 0.0)
-        predicted = row["intensity_offset"] + row["expression_amplitude"] * (
+        dt = np.maximum(minutes - row["onset_time"], 0.0)
+        predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
             np.exp(-row["protein_decay_rate"] * dt)
             - np.exp(-row["mrna_decay_rate"] * dt)
         )
         predicted = np.where(
-            minutes < row["translation_onset"], row["intensity_offset"], predicted
+            minutes < row["onset_time"], row["baseline_intensity"], predicted
         )
         ax.plot(minutes, predicted, color="green", alpha=0.1)
     ax.set_ylim(
@@ -612,13 +612,13 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
             continue
         row = row.iloc[0]
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
-        dt = np.maximum(minutes - row["translation_onset"], 0.0)
-        predicted = row["intensity_offset"] + row["expression_amplitude"] * (
+        dt = np.maximum(minutes - row["onset_time"], 0.0)
+        predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
             np.exp(-row["protein_decay_rate"] * dt)
             - np.exp(-row["mrna_decay_rate"] * dt)
         )
         predicted = np.where(
-            minutes < row["translation_onset"], row["intensity_offset"], predicted
+            minutes < row["onset_time"], row["baseline_intensity"], predicted
         )
         ax.plot(minutes, predicted, color="green", alpha=0.1)
     ax.set_ylim(
@@ -641,13 +641,13 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
             continue
         row = row.iloc[0]
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
-        dt = np.maximum(minutes - row["translation_onset"], 0.0)
-        predicted = row["intensity_offset"] + row["expression_amplitude"] * (
+        dt = np.maximum(minutes - row["onset_time"], 0.0)
+        predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
             np.exp(-row["protein_decay_rate"] * dt)
             - np.exp(-row["mrna_decay_rate"] * dt)
         )
         predicted = np.where(
-            minutes < row["translation_onset"], row["intensity_offset"], predicted
+            minutes < row["onset_time"], row["baseline_intensity"], predicted
         )
         ax.plot(minutes, predicted, color="green", alpha=0.1)
     ax.set_ylim(
@@ -670,13 +670,13 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
             continue
         row = row.iloc[0]
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
-        dt = np.maximum(minutes - row["translation_onset"], 0.0)
-        predicted = row["intensity_offset"] + row["expression_amplitude"] * (
+        dt = np.maximum(minutes - row["onset_time"], 0.0)
+        predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
             np.exp(-row["protein_decay_rate"] * dt)
             - np.exp(-row["mrna_decay_rate"] * dt)
         )
         predicted = np.where(
-            minutes < row["translation_onset"], row["intensity_offset"], predicted
+            minutes < row["onset_time"], row["baseline_intensity"], predicted
         )
         ax.plot(minutes, predicted, color="green", alpha=0.1)
     ax.set_ylim(

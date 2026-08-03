@@ -98,12 +98,16 @@ def write_auc_boxplot(
 
     ax.set_xlabel(boxplot_x_axis_label(slide_channel_names))
     ax.set_ylabel("AUC")
+    ax.tick_params(axis="x", labelrotation=45)
+    for label in ax.get_xticklabels():
+        label.set_ha("right")
     if log_scale:
         ax.set_yscale("log")
     else:
         arrays = [values for values in grouped_values if values.size]
         y_low, y_high = percentile_ylim(np.concatenate(arrays) if arrays else np.array([]))
         ax.set_ylim(y_low, y_high)
+        ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
 
     output_plot.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_plot, dpi=plot_layout.FIGURE_DPI, bbox_inches="tight")

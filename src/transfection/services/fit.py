@@ -15,20 +15,24 @@ from transfection.core.export import parallel_xlsx_path, write_csv_and_parallel_
 from transfection.services import auc
 
 
-# Fit CSV columns. Historical ids map to Müller et al. 2024 basic-model terms
-# (no maturation): translation_onset → onset time t0; expression_rate → m0·kTL;
-# intensity_offset is a baseline nuisance, not a kinetic rate; expression_rate
-# is preferred over legacy “transfection_efficiency”.
+# Fit CSV columns — Müller et al. 2024 basic model (no maturation).
+#
+#   onset_time           t0  (minutes after acquisition start)
+#   expression_rate      m0·kTL  (initial protein-production slope)
+#   mrna_lifetime        1/δ
+#   protein_lifetime     1/β
+#   expression_amplitude m0·kTL / (δ − β)  (intermediate fit coefficient)
+#   baseline_intensity   additive baseline (not a kinetic rate)
 OUTPUT_COLUMNS = (
     "slide_channel",
     "pos",
     "roi",
-    "intensity_offset",
+    "baseline_intensity",
     "protein_decay_rate",
     "protein_lifetime",
     "mrna_decay_rate",
     "mrna_lifetime",
-    "translation_onset",
+    "onset_time",
     "expression_amplitude",
     "expression_rate",
     "success",
@@ -37,15 +41,15 @@ OUTPUT_COLUMNS = (
 RATE_COARSE_CANDIDATE_COUNT = 24
 RATE_REFINE_CANDIDATE_COUNT = 12
 RATE_REFINE_PASSES = 2
-FIXED_TRANSLATION_ONSET = 0.0
+FIXED_ONSET_TIME = 0.0
 
 
 @dataclass(frozen=True)
 class FitResult:
-    intensity_offset: float
+    baseline_intensity: float
     protein_decay_rate: float
     mrna_decay_rate: float
-    translation_onset: float
+    onset_time: float
     expression_amplitude: float
 
 
@@ -244,7 +248,7 @@ def _fit_trace_points_with_fixed_protein(
                     values,
                     protein_decay_rate=fixed_protein_decay_rate,
                     mrna_decay_rate=math.exp(float(mrna_log)),
-                    translation_onset=t_onset,
+                    onset_time=t_onset,
                 )
                 if candidate is None:
                     continue
@@ -279,24 +283,24 @@ def _evaluate_rate_candidate(
     *,
     protein_decay_rate: float,
     mrna_decay_rate: float,
-    translation_onset: float = FIXED_TRANSLATION_ONSET,
+    onset_time: float = FIXED_ONSET_TIME,
 ) -> tuple[float, FitResult] | None:
-    dt = np.maximum(times - translation_onset, 0.0)
+    dt = np.maximum(times - onset_time, 0.0)
     basis = np.exp(-protein_decay_rate * dt) - np.exp(-mrna_decay_rate * dt)
-    basis[times < translation_onset] = 0.0
+    basis[times < onset_time] = 0.0
     if not np.isfinite(basis).all():
         return None
 
     design = np.column_stack([np.ones_like(times), basis])
     coefficients, *_ = np.linalg.lstsq(design, values, rcond=None)
-    intensity_offset = float(coefficients[0])
+    baseline_intensity = float(coefficients[0])
     expression_amplitude = float(coefficients[1])
-    if not math.isfinite(intensity_offset) or not math.isfinite(expression_amplitude):
+    if not math.isfinite(baseline_intensity) or not math.isfinite(expression_amplitude):
         return None
     if expression_amplitude <= 0:
         return None
 
-    predicted = intensity_offset + expression_amplitude * basis
+    predicted = baseline_intensity + expression_amplitude * basis
     if not np.isfinite(predicted).all():
         return None
 
@@ -305,10 +309,10 @@ def _evaluate_rate_candidate(
         return None
 
     return sse, FitResult(
-        intensity_offset=intensity_offset,
+        baseline_intensity=baseline_intensity,
         protein_decay_rate=float(protein_decay_rate),
         mrna_decay_rate=float(mrna_decay_rate),
-        translation_onset=float(translation_onset),
+        onset_time=float(onset_time),
         expression_amplitude=expression_amplitude,
     )
 
@@ -328,12 +332,12 @@ def _candidate_onset_indices(times: np.ndarray, *, max_onset_minutes: float | No
 def derive_parameters(result: FitResult) -> dict[str, float]:
     expression_rate = result.expression_amplitude * (result.mrna_decay_rate - result.protein_decay_rate)
     return {
-        "intensity_offset": result.intensity_offset,
+        "baseline_intensity": result.baseline_intensity,
         "protein_decay_rate": result.protein_decay_rate,
         "protein_lifetime": 1.0 / result.protein_decay_rate,
         "mrna_decay_rate": result.mrna_decay_rate,
         "mrna_lifetime": 1.0 / result.mrna_decay_rate,
-        "translation_onset": result.translation_onset,
+        "onset_time": result.onset_time,
         "expression_amplitude": result.expression_amplitude,
         "expression_rate": expression_rate,
     }
@@ -421,12 +425,12 @@ def _failed_fit_row(slide_channel: int | None, group_values: dict[str, int]) -> 
     return {
         "slide_channel": slide_channel,
         **group_values,
-        "intensity_offset": None,
+        "baseline_intensity": None,
         "protein_decay_rate": None,
         "protein_lifetime": None,
         "mrna_decay_rate": None,
         "mrna_lifetime": None,
-        "translation_onset": None,
+        "onset_time": None,
         "expression_amplitude": None,
         "expression_rate": None,
         "success": False,

@@ -26,17 +26,19 @@ Studio wire id is **`transfection`**. Prefer that when writing workspaces Studio
 ## Kinetic terminology (Müller et al. 2024)
 
 Fits use the **basic translation–degradation model only** (no protein maturation).
+Code identifiers, CSV columns, and UI labels use the same names:
 
-| Display label | CSV column | Paper |
+| Code / CSV | Display | Paper |
 | --- | --- | --- |
-| onset time | `translation_onset` | \(t_0\) |
-| expression rate | `expression_rate` | \(m_0 k_{TL}\) |
-| mRNA lifetime | `mrna_lifetime` | \(\tau_\mathrm{mRNA}\) |
-| protein lifetime | `protein_lifetime` | \(\tau_\mathrm{EGFP}\) |
-| intensity offset | `intensity_offset` | baseline nuisance |
+| `onset_time` | onset time | \(t_0\) |
+| `expression_rate` | expression rate | \(m_0 k_{TL}\) |
+| `mrna_lifetime` | mRNA lifetime | \(\tau_\mathrm{mRNA}\) |
+| `protein_lifetime` | protein lifetime | \(\tau_\mathrm{EGFP}\) |
+| `expression_amplitude` | (internal) | \(m_0 k_{TL}/(\delta-\beta)\) |
+| `baseline_intensity` | baseline intensity | additive baseline (not a kinetic rate) |
 
-Prefer **expression rate** over legacy “transfection efficiency” for \(m_0 k_{TL}\).
-CSV column names stay stable for parity with Rust/`lisca-analyze`.
+Use **expression rate** for \(m_0 k_{TL}\) — never “transfection efficiency”.
+Names must stay in lockstep with Rust `lisca-analyze` (no alternate column aliases).
 
 ## CLI
 

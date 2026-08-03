@@ -7,7 +7,7 @@ Panels:
   C - expression rate vs onset time (half-max proxy from timeseries), log-log
   D - expression rate vs mRNA lifetime, log-log
 
-Panel C replaces the (all-zero) translation_onset / onset-time column from
+Panel C replaces the (all-zero) onset_time / onset-time column from
 fit.csv with an onset time computed per cell from the timeseries: first time t
 (minutes) where the
 corrected fluorescence reaches 0.5 * max(corrected) for that cell.

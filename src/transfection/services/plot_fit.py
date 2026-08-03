@@ -22,20 +22,19 @@ from transfection.core import (
     trace_color_alpha_from_fluor_name,
 )
 
-# Display labels: Müller et al. 2024 basic model (no maturation).
-# CSV column ids keep historical names (translation_onset, expression_rate, …).
+# Display labels match Müller et al. 2024 (basic model, no maturation).
 PLOTTED_PARAMETERS = (
-    ("intensity_offset", "intensity offset"),
+    ("baseline_intensity", "baseline intensity"),
     ("protein_lifetime", "protein lifetime"),
     ("mrna_lifetime", "mRNA lifetime"),
-    ("translation_onset", "onset time"),
+    ("onset_time", "onset time"),
     ("expression_rate", "expression rate"),
 )
 FIT_TRACE_PARAMETERS = (
-    "intensity_offset",
+    "baseline_intensity",
     "protein_decay_rate",
     "mrna_decay_rate",
-    "translation_onset",
+    "onset_time",
     "expression_amplitude",
 )
 
@@ -124,10 +123,9 @@ def load_fit_csv(fit_csv: Path) -> pd.DataFrame:
     if "mrna_lifetime" not in df.columns:
         df["mrna_lifetime"] = 1.0 / df["mrna_decay_rate"]
     if "expression_rate" not in df.columns:
-        if "transfection_efficiency" in df.columns:
-            df["expression_rate"] = df["transfection_efficiency"]
-        else:
-            df["expression_rate"] = df["expression_amplitude"] * (df["mrna_decay_rate"] - df["protein_decay_rate"])
+        df["expression_rate"] = df["expression_amplitude"] * (
+            df["mrna_decay_rate"] - df["protein_decay_rate"]
+        )
     return df.sort_values(["slide_channel", "pos", "roi"]).reset_index(drop=True)
 
 
@@ -209,16 +207,16 @@ def write_fit_boxplot(
 
 
 def fitted_trace_values(times_minutes: np.ndarray, fit_row: pd.Series) -> np.ndarray:
-    intensity_offset = float(fit_row["intensity_offset"])
+    baseline_intensity = float(fit_row["baseline_intensity"])
     protein_decay_rate = float(fit_row["protein_decay_rate"])
     mrna_decay_rate = float(fit_row["mrna_decay_rate"])
-    translation_onset = float(fit_row["translation_onset"])
+    onset_time = float(fit_row["onset_time"])
     expression_amplitude = float(fit_row["expression_amplitude"])
-    dt = np.maximum(times_minutes - translation_onset, 0.0)
-    predicted = intensity_offset + expression_amplitude * (
+    dt = np.maximum(times_minutes - onset_time, 0.0)
+    predicted = baseline_intensity + expression_amplitude * (
         np.exp(-protein_decay_rate * dt) - np.exp(-mrna_decay_rate * dt)
     )
-    predicted[times_minutes < translation_onset] = intensity_offset
+    predicted[times_minutes < onset_time] = baseline_intensity
     return predicted
 
 

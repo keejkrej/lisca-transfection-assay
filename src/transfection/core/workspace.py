@@ -82,11 +82,12 @@ def load_slide_channel_labels(workspace: Path) -> dict[int, str]:
 def boxplot_tick_labels(
     slide_channels: list[int], trace_counts: list[int], slide_labels: dict[int, str]
 ) -> list[str]:
+    # Single-line labels so tilted x-ticks stay readable.
     return [
-        f"{slide_labels.get(sc, str(sc))}\n(n={n})"
+        f"{slide_labels.get(sc, str(sc))} (n={n})"
         for sc, n in zip(slide_channels, trace_counts, strict=True)
     ]
 
 
 def boxplot_x_axis_label(slide_labels: dict[int, str]) -> str:
-    return "condition" if slide_labels else "slide channel"
+    return "sample" if slide_labels else "slide channel"
