@@ -173,6 +173,25 @@ def compute_roi_mask_stack(
 
 
 def write_mask_tif(mask_stack: np.ndarray, output_path: Path) -> None:
+    """Write a (T, H, W) mask stack as one Gray8 TIFF page per timepoint.
+
+    Do not pass the full array to ``tifffile.imwrite``: when W==1 or H==1 it
+    squeezes the singleton spatial axis and stores a single 2D plane
+    (e.g. shape (T, H) as pages=1, width=H, height=T). That breaks multipage
+    loaders in both Python and ``lisca-analyze`` that expect T pages of (H, W).
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    tifffile.imwrite(output_path, mask_stack.astype(np.uint8, copy=False))
+    arr = np.asarray(mask_stack, dtype=np.uint8)
+    if arr.ndim != 3:
+        raise ValueError(f"mask_stack must have shape (T, H, W), got {arr.shape}")
+    if arr.shape[0] == 0:
+        raise ValueError("mask_stack has no timepoints")
+
+    with tifffile.TiffWriter(output_path) as writer:
+        for frame in arr:
+            writer.write(
+                np.ascontiguousarray(frame),
+                photometric="minisblack",
+                contiguous=False,
+            )
 

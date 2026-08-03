@@ -86,7 +86,9 @@ def validate_channel_index(index: PositionIndex, channel: int) -> None:
 
 
 def read_roi_stack(roi_path: Path, expected_shape: tuple[int, ...]) -> np.ndarray:
-    stack = np.asarray(tifffile.imread(roi_path))
+    # key=slice(None) stacks multipage TIFFs; needed when a spatial axis is 1
+    # (tifffile may otherwise return only the first page).
+    stack = np.asarray(tifffile.imread(roi_path, key=slice(None)))
     if stack.shape != expected_shape:
         expected_size = int(np.prod(expected_shape, dtype=np.int64))
         if stack.size != expected_size:
