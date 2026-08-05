@@ -21,7 +21,7 @@ Agent-facing notes for the **transfection** analysis package (Python goal source
 
 There is **no** interactive wizard and **no** `slide.json` / compact mapping DSL. Config is `assay.json` only. Agents author it directly.
 
-Studio wire id is **`transfection`**. Prefer that when writing workspaces Studio or Rust will open. Stages still run if `assayId` is missing or another string (mapping comes from `info3`).
+Studio wire id is **`transfection`** (root `type`). Prefer that when writing workspaces Studio or Rust will open.
 
 ## Kinetic terminology (Müller et al. 2024)
 
@@ -58,7 +58,8 @@ uv run transfection check-segment WORKSPACE   # manual mask QA only
 Defaults:
 
 - `--assay` → `<workspace>/assay.json`
-- `--interval` / `--max-onset-minutes` → from `assay.json` when omitted (`info2`, `analysis.maxOnsetMinutes`)
+- `--interval` / `--max-onset-minutes` → from `assay.json` when omitted (`interval`, `analysis.maxOnsetMinutes`)
+- Segment skip / full-ROI timeseries → `analysis.skipSegment` (replaces CLI `--full-frame`)
 
 ### ROI crop (not in this package)
 
@@ -71,7 +72,7 @@ Rust / Studio: **`lisca-crop`** and Studio crop HTTP (not Aligner).
 
 # Rust
 cargo run -p lisca --release --bin lisca-crop -- --workspace WORKSPACE --source /data/run.nd2 --overwrite
-# or WORKSPACE only if assay.json info1.dataPath is set
+# or WORKSPACE only if assay.json data.path is set
 ```
 
 Stage order:
@@ -90,9 +91,9 @@ segment → timeseries → plot-timeseries → auc → plot-auc → fit → plot
 | --- | --- |
 | `assay.json` | **Required** experiment config (schema below) |
 | `bbox/PosN.csv` | Site boxes from Aligner (input to pyama / `lisca-crop`) |
-| `roi/PosN/` | Cropped ROI stacks + `index.json` (from pyama / `lisca-crop` / Studio). Optional `timeIndices` lists source acquisition frame indices per T plane (e.g. downsampled every 6th frame → `[0,6,12,…]`); timeseries CSV `t` uses these, then `t * interval` is real minutes. |
+| `roi/PosN/` | Cropped ROI stacks + slim `index.json` (from pyama / `lisca-crop` / Studio). Always `axisOrder: "TCZYX"`; keep `zCount` (`1` if no z-stack). Stack shape is derived as `[timeCount, channelCount, zCount, bbox.h, bbox.w]`. Optional `timeIndices` lists source acquisition frame indices per T plane; timeseries CSV `t` uses these, then `t * interval` is real minutes. |
 | `mask/PosN/` | Segmentation masks (written by `segment`) |
-| `timeseries/` | `sc{S}_ch{C}.csv` metrics (written by `timeseries`) |
+| `timeseries/` | `Pos{N}/ch{C}.csv` metrics (`roi,t,area,background,sum,corrected`; no `pos` / `slide_channel`) |
 | `results/` | `auc.csv`, `fit.csv`, plots |
 
 ## `assay.json` schema
@@ -103,21 +104,19 @@ Studio-compatible JSON object. Canonical Effect Schema: `@lisca/contracts` → `
 
 | JSON path | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `assayId` | string | recommended | Studio wire id: `"transfection"` |
-| `assayLabel` | string | recommended | Display label |
-| `info2.timelapseAmount` | number \| null | no (default **10** min) | Positive frame step; general field |
-| `info2.timelapseUnit` | `"second"` \| `"minute"` \| `"hour"` | no | Converted to minutes; default unit `minute` |
-| `info3.samples` | array | **yes** | One row per condition / slide channel |
-| `info3.samples[].channel` | string int | **yes** | Slide-channel key → `sc{N}_…` outputs |
-| `info3.samples[].name` | string | **yes** | Condition label on plots (empty name → row skipped) |
-| `info3.samples[].signalChannel` | string int | **yes** | Intensity channel index in ROI stacks |
-| `info3.samples[].maskChannel` | string int | **yes** | Channel used for Otsu masks |
-| `info3.samples[].positions` | string | **yes** | Position list/ranges (see below) |
-| `analysis.maxOnsetMinutes` | number | no | Fit **onset time** (\(t_0\)) search cap; default **`120`**; set `0` to fix onset at 0. Basic model only (no maturation). |
-
-### Studio fields (keep for parity; unused by this CLI)
-
-`dataSourceKind`, `info1.*`, `info2.selectedFeatures`, `info3.samples[].positionStart` / `positionFinish` — Studio wizard / UI only. Include empty strings / nulls when targeting Studio.
+| `type` | string | recommended | Studio wire id: `"transfection"` |
+| `name` | string | recommended | Display / experiment name |
+| `data.path` | string | no | Source path (crop tooling; unused by analysis stages) |
+| `interval.value` | number \| null | no (default **10** min) | Positive frame step |
+| `interval.unit` | `"second"` \| `"minute"` \| `"hour"` | no | Converted to minutes; default unit `minute` |
+| `samples` | array | **yes** | One row per condition / slide |
+| `samples[].slide` | string int | **yes** | Slide key for AUC/fit grouping (resolved from `PosN/chC` + mapping) |
+| `samples[].name` | string | **yes** | Condition label on plots (empty name → row skipped) |
+| `samples[].fluorescence` | string int | **yes** | Intensity channel index in ROI stacks |
+| `samples[].brightfield` | string int | **yes** | Channel used for Otsu masks |
+| `samples[].positions` | string | **yes** | Position list/ranges (see below) |
+| `analysis.maxOnsetMinutes` | number | no | Fit **onset time** (\(t_0\)) search cap; default **`120`**; set `0` to fix onset at 0 |
+| `analysis.skipSegment` | boolean | no | When true, skip Otsu and use full-ROI p10 background timeseries |
 
 ### Position strings
 
@@ -132,45 +131,30 @@ Comma-separated tokens. Ranges are **inclusive** on both ends (Studio semantics)
 
 ```json
 {
-  "assayId": "transfection",
-  "assayLabel": "TF84 transfection",
-  "dataSourceKind": null,
-  "info1": {
-    "name": "TF84",
-    "dataPath": "",
-    "folderSubfolderTemplate": "",
-    "folderFilenameTemplate": "",
-    "saveTo": ""
-  },
-  "info2": {
-    "timelapseAmount": 10,
-    "timelapseUnit": "minute",
-    "selectedFeatures": []
-  },
-  "info3": {
-    "samples": [
-      {
-        "channel": "0",
-        "name": "condA",
-        "positionStart": "1",
-        "positionFinish": "12",
-        "maskChannel": "0",
-        "signalChannel": "1",
-        "positions": "1:12"
-      },
-      {
-        "channel": "1",
-        "name": "condB",
-        "positionStart": "13",
-        "positionFinish": "24",
-        "maskChannel": "0",
-        "signalChannel": "1",
-        "positions": "13:24"
-      }
-    ]
-  },
+  "type": "transfection",
+  "name": "TF84",
+  "data": { "type": "nd2", "path": "/data/TF84.nd2" },
+  "workspace": { "path": "/data/TF84-workspace" },
+  "interval": { "value": 10, "unit": "minute" },
+  "samples": [
+    {
+      "slide": "0",
+      "name": "condA",
+      "positions": "1:12",
+      "brightfield": "0",
+      "fluorescence": "1"
+    },
+    {
+      "slide": "1",
+      "name": "condB",
+      "positions": "13:24",
+      "brightfield": "0",
+      "fluorescence": "1"
+    }
+  ],
   "analysis": {
-    "maxOnsetMinutes": 120
+    "maxOnsetMinutes": 120,
+    "skipSegment": false
   }
 }
 ```
@@ -180,6 +164,7 @@ Comma-separated tokens. Ranges are **inclusive** on both ends (Studio semantics)
 - **`slide.json`** — removed. Do not generate or pass `--sample` mappings.
 - Compact `positions@signal/mask#name` DSL — removed.
 - Interactive `*.sh` / `*.ps1` analyze helpers — removed. Install scripts only set up `uv`.
+- CLI `--full-frame` — removed; use `analysis.skipSegment`.
 
 ## Parity with lisca
 

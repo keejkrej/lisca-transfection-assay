@@ -14,11 +14,14 @@ from transfection import core as paths
 from transfection import core as plot_layout
 from transfection.services import auc, plot_auc, plot_timeseries
 from transfection.core import (
+    SlideMapping,
     boxplot_tick_labels,
     boxplot_x_axis_label,
     infer_workspace_for_plot_csv,
+    load_assay_for_workspace,
     load_slide_channel_labels,
     load_timeseries_csv,
+    resolve_slide_channel,
     trace_color_alpha_from_fluor_name,
 )
 
@@ -49,7 +52,9 @@ def run_plot_fit(
     resolved_fit_csv = fit_csv.resolve()
     df = load_fit_csv(resolved_fit_csv)
     output_paths = default_output_plot_paths(resolved_fit_csv, output)
-    slide_channel_names = load_slide_channel_labels(infer_workspace_for_plot_csv(fit_csv))
+    workspace = infer_workspace_for_plot_csv(fit_csv)
+    config = load_assay_for_workspace(workspace)
+    slide_channel_names = load_slide_channel_labels(workspace)
     written_paths: list[Path] = []
     for parameter, label in PLOTTED_PARAMETERS:
         output_plot = output_paths[parameter]
@@ -93,6 +98,7 @@ def run_plot_fit(
             fit_trace_plot,
             interval=interval,
             columns=columns,
+            mapping=config.mapping,
             slide_channel_names=slide_channel_names,
         )
     )
@@ -227,6 +233,7 @@ def write_fitted_trace_plots(
     *,
     interval: float,
     columns: int,
+    mapping: SlideMapping,
     slide_channel_names: dict[int, str],
 ) -> list[Path]:
     """Write per-panel y-scale `traces_fit.png` and shared-y `traces_fit_shared_y.png`."""
@@ -246,6 +253,7 @@ def write_fitted_trace_plots(
         output_plot,
         interval=interval,
         columns=columns,
+        mapping=mapping,
         slide_channel_names=slide_channel_names,
         ylim_fn=lambda i: panel_ylims[i],
     )
@@ -255,6 +263,7 @@ def write_fitted_trace_plots(
         shared_y_plot,
         interval=interval,
         columns=columns,
+        mapping=mapping,
         slide_channel_names=slide_channel_names,
         ylim_fn=lambda _i: (unified_low, unified_high),
     )
@@ -268,6 +277,7 @@ def write_fitted_trace_grid(
     *,
     interval: float,
     columns: int,
+    mapping: SlideMapping,
     slide_channel_names: dict[int, str],
     ylim_fn,
 ) -> None:
@@ -287,9 +297,9 @@ def write_fitted_trace_grid(
     plotted_trace_count = 0
 
     for panel_index, (ax, (csv_path, df)) in enumerate(zip(axes_flat, panels)):
-        slide_channel = auc.parse_slide_channel(csv_path)
+        slide_channel = resolve_slide_channel(csv_path, mapping)
         trace_color, trace_alpha = trace_color_alpha_from_fluor_name(
-            plot_timeseries.trace_naming_haystack(csv_path, slide_channel_names)
+            plot_timeseries.trace_naming_haystack(csv_path, mapping, slide_channel_names)
         )
         matched_traces = 0
         trace_groups = df.groupby(plot_timeseries.trace_group_columns(df), sort=True, dropna=False)
@@ -311,7 +321,12 @@ def write_fitted_trace_grid(
             plotted_trace_count += 1
 
         ax.set_title(
-            plot_timeseries.subplot_title(csv_path, matched_traces, slide_channel_names=slide_channel_names)
+            plot_timeseries.subplot_title(
+                csv_path,
+                matched_traces,
+                mapping=mapping,
+                slide_channel_names=slide_channel_names,
+            )
         )
         ax.set_xlabel("minutes")
         ax.set_ylabel("corrected intensity")

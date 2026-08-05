@@ -35,7 +35,7 @@ def fit(
         typer.Option(
             "--interval",
             min=0.0,
-            help="Frame interval in minutes. Default: assay.json info2.timelapseAmount/Unit.",
+            help="Frame interval in minutes. Default: assay.json interval.value/unit.",
         ),
     ] = None,
     max_onset_minutes: Annotated[

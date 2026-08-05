@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pandas as pd
 
 from transfection import core as paths
-from transfection.core import load_timeseries_csv
+from transfection.core import SlideMapping, load_assay_for_workspace, load_timeseries_csv, resolve_slide_channel
 from transfection.core.export import parallel_xlsx_path, write_csv_and_parallel_xlsx
 
 
@@ -21,12 +20,21 @@ def default_results_table_csv_path(results_dir: Path, *, kind: str) -> Path:
     return (results_dir.resolve() / f"{kind}.csv").resolve()
 
 
-def integrate_auc_csvs(timeseries_csvs: list[Path], *, interval: float, output_csv: Path | None) -> Path:
+def integrate_auc_csvs(
+    timeseries_csvs: list[Path],
+    *,
+    interval: float,
+    mapping: SlideMapping,
+    output_csv: Path | None,
+) -> Path:
     if interval <= 0:
         raise ValueError(f"--interval must be > 0, got {interval}")
 
-    resolved_csvs = sorted((csv_path.resolve() for csv_path in timeseries_csvs), key=lambda path: path.name)
-    auc_df = compute_auc_table(resolved_csvs, interval=interval)
+    resolved_csvs = sorted(
+        (csv_path.resolve() for csv_path in timeseries_csvs),
+        key=lambda path: (path.parent.name, path.name),
+    )
+    auc_df = compute_auc_table(resolved_csvs, interval=interval, mapping=mapping)
     resolved_output_csv = default_output_csv_path(resolved_csvs, output_csv)
     write_auc_csv(auc_df, resolved_output_csv)
     return resolved_output_csv
@@ -45,13 +53,6 @@ def default_output_csv_path(
     return timeseries_csvs[0].with_name("auc.csv").resolve()
 
 
-def parse_slide_channel(csv_path: Path) -> int | None:
-    match = re.fullmatch(r"sc(\d+)_ch\d+", csv_path.stem)
-    if match is None:
-        return None
-    return int(match.group(1))
-
-
 def integrate_trace(trace_df: pd.DataFrame, *, interval: float) -> float:
     sorted_df = trace_df.sort_values("t").reset_index(drop=True)
     if len(sorted_df) < 2:
@@ -64,11 +65,16 @@ def integrate_trace(trace_df: pd.DataFrame, *, interval: float) -> float:
     return float((widths * heights).sum())
 
 
-def compute_auc_table(timeseries_csvs: list[Path], *, interval: float) -> pd.DataFrame:
+def compute_auc_table(
+    timeseries_csvs: list[Path],
+    *,
+    interval: float,
+    mapping: SlideMapping,
+) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for csv_path in timeseries_csvs:
         df = load_timeseries_csv(csv_path)
-        slide_channel = parse_slide_channel(csv_path)
+        slide_channel = resolve_slide_channel(csv_path, mapping)
         group_columns = [column for column in GROUP_COLUMNS if column in df.columns]
         if not group_columns:
             raise ValueError(f"{csv_path} has no supported grouping columns: {GROUP_COLUMNS}")
@@ -102,8 +108,14 @@ def format_written_auc_csv_message(output_csv: Path) -> str:
     return f"Wrote AUC CSV: {output_csv}\nWrote AUC XLSX: {parallel_xlsx_path(output_csv)}"
 
 
-def run_auc(*, workspace: Path, interval: float) -> Path:
+def run_auc(*, workspace: Path, interval: float, assay: Path | None = None) -> Path:
+    config = load_assay_for_workspace(workspace, assay)
     timeseries_csvs = paths.discover_timeseries_csvs(paths.workspace_timeseries_dir(workspace))
     results_dir = paths.workspace_results_dir(workspace)
     output_csv = default_output_csv_path(timeseries_csvs, None, results_dir=results_dir)
-    return integrate_auc_csvs(timeseries_csvs, interval=interval, output_csv=output_csv)
+    return integrate_auc_csvs(
+        timeseries_csvs,
+        interval=interval,
+        mapping=config.mapping,
+        output_csv=output_csv,
+    )

@@ -29,12 +29,13 @@ DEFAULT_MAX_ONSET_MINUTES = 120.0
 @dataclass(frozen=True)
 class AssayConfig:
     path: Path
-    assay_id: str
-    assay_label: str
+    assay_type: str
+    name: str
     data_path: str
     mapping: SlideMapping
     interval_minutes: float | None
     max_onset_minutes: float
+    skip_segment: bool
 
 
 def resolve_assay_path(workspace: Path, assay: Path | None = None) -> Path:
@@ -62,7 +63,7 @@ def load_assay_for_workspace(workspace: Path, assay: Path | None = None) -> Assa
 
 def build_slide_mapping_from_samples(samples: list[Any], *, source: Path | str) -> SlideMapping:
     if not isinstance(samples, list):
-        raise ValueError(f"{source}: info3.samples must be an array")
+        raise ValueError(f"{source}: samples must be an array")
 
     mapping: SlideMapping = {}
     for index, row in enumerate(samples):
@@ -73,9 +74,9 @@ def build_slide_mapping_from_samples(samples: list[Any], *, source: Path | str) 
         if not sample_name:
             continue
 
-        channel = _require_nonneg_int_field(row, "channel", source=source, index=index)
-        signal_channel = _require_nonneg_int_field(row, "signalChannel", source=source, index=index)
-        mask_channel = _require_nonneg_int_field(row, "maskChannel", source=source, index=index)
+        slide = _require_nonneg_int_field(row, "slide", source=source, index=index)
+        signal_channel = _require_nonneg_int_field(row, "fluorescence", source=source, index=index)
+        mask_channel = _require_nonneg_int_field(row, "brightfield", source=source, index=index)
         positions_raw = row.get("positions")
         if positions_raw is None or str(positions_raw).strip() == "":
             raise ValueError(f"{source}: samples[{index}] missing positions")
@@ -84,7 +85,7 @@ def build_slide_mapping_from_samples(samples: list[Any], *, source: Path | str) 
         except ValueError as exc:
             raise ValueError(f"{source}: samples[{index}] positions: {exc}") from exc
 
-        mapping[channel] = SlideChannelMapping(
+        mapping[slide] = SlideChannelMapping(
             positions=positions,
             signal_channel=signal_channel,
             mask_channel=mask_channel,
@@ -121,28 +122,27 @@ def require_interval_minutes(config: AssayConfig, *, override: float | None = No
         return override
     if config.interval_minutes is None:
         raise ValueError(
-            f"missing --interval and could not read a positive timelapseAmount from {config.path}"
+            f"missing --interval and could not read a positive interval.value from {config.path}"
         )
     return config.interval_minutes
 
 
 def _parse_assay(raw: dict[str, Any], *, path: Path) -> AssayConfig:
-    assay_id = str(raw.get("assayId") or "").strip() or "unknown"
-    assay_label = str(raw.get("assayLabel") or "").strip() or assay_id
+    assay_type = str(raw.get("type") or "").strip() or "unknown"
+    name = str(raw.get("name") or "").strip() or assay_type
 
-    info1 = raw.get("info1") if isinstance(raw.get("info1"), dict) else {}
-    data_path = str(info1.get("dataPath") or "").strip() if isinstance(info1, dict) else ""
+    data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+    data_path = str(data.get("path") or "").strip() if isinstance(data, dict) else ""
 
-    info3 = raw.get("info3")
-    if not isinstance(info3, dict):
-        raise ValueError(f"{path}: missing info3 object")
-    samples = info3.get("samples")
-    mapping = build_slide_mapping_from_samples(samples if samples is not None else [], source=path)
+    samples = raw.get("samples")
+    if samples is None:
+        raise ValueError(f"{path}: missing samples array")
+    mapping = build_slide_mapping_from_samples(samples, source=path)
 
-    info2 = raw.get("info2") if isinstance(raw.get("info2"), dict) else {}
+    interval_obj = raw.get("interval") if isinstance(raw.get("interval"), dict) else {}
     interval = parse_interval_minutes(
-        info2.get("timelapseAmount") if isinstance(info2, dict) else None,
-        info2.get("timelapseUnit") if isinstance(info2, dict) else None,
+        interval_obj.get("value") if isinstance(interval_obj, dict) else None,
+        interval_obj.get("unit") if isinstance(interval_obj, dict) else None,
     )
     if interval is None:
         interval = DEFAULT_INTERVAL_MINUTES
@@ -157,14 +157,22 @@ def _parse_assay(raw: dict[str, Any], *, path: Path) -> AssayConfig:
         if max_onset < 0:
             raise ValueError(f"{path}: analysis.maxOnsetMinutes must be >= 0")
 
+    skip_segment = False
+    if isinstance(analysis, dict) and analysis.get("skipSegment") is not None:
+        skip_raw = analysis["skipSegment"]
+        if not isinstance(skip_raw, bool):
+            raise ValueError(f"{path}: analysis.skipSegment must be a boolean")
+        skip_segment = skip_raw
+
     return AssayConfig(
         path=path,
-        assay_id=assay_id,
-        assay_label=assay_label,
+        assay_type=assay_type,
+        name=name,
         data_path=data_path,
         mapping=mapping,
         interval_minutes=interval,
         max_onset_minutes=max_onset,
+        skip_segment=skip_segment,
     )
 
 

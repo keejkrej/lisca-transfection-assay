@@ -5,9 +5,12 @@ from pathlib import Path
 
 from transfection.core.assay import load_assay_for_workspace
 from transfection.core.constants import RESULTS_DIRNAME, TIMESERIES_DIRNAME
+from transfection.core.slide import SlideMapping
 
 _TRACE_ALPHA = 0.1
-_WORKSPACE_METRICS_STEM = re.compile(r"^sc\d+_ch\d+$")
+_WORKSPACE_METRICS_STEM = re.compile(r"^ch\d+$")
+_POS_DIR = re.compile(r"^Pos(\d+)$")
+_CH_STEM = re.compile(r"^ch(\d+)$")
 
 
 def trace_color_alpha_from_fluor_name(name: str) -> tuple[str, float]:
@@ -45,21 +48,60 @@ def discover_timeseries_csvs(timeseries_dir: Path) -> list[Path]:
             f"Expected {TIMESERIES_DIRNAME}/ directory at {timeseries_dir}. "
             "Run transfection timeseries first."
         )
-    csvs = sorted(timeseries_dir.glob("*.csv"), key=lambda path: path.name)
+    csvs = sorted(timeseries_dir.glob("Pos*/ch*.csv"), key=lambda path: (path.parent.name, path.name))
     if not csvs:
         raise ValueError(f"No CSV metrics files in {timeseries_dir}")
     metrics = [path for path in csvs if is_workspace_metrics_timeseries_csv(path)]
     if not metrics:
         raise ValueError(
-            f"No workspace metrics CSV files (expected stem sc{{slide}}_ch{{channel}}.csv) in {timeseries_dir}"
+            f"No position metrics CSV files (expected Pos{{position}}/ch{{channel}}.csv) in {timeseries_dir}"
         )
     return metrics
+
+
+def parse_timeseries_csv_path(csv_path: Path) -> tuple[int, int]:
+    """Return ``(position, signal_channel)`` from ``timeseries/Pos{n}/ch{n}.csv``."""
+    parent_match = _POS_DIR.fullmatch(csv_path.parent.name)
+    stem_match = _CH_STEM.fullmatch(csv_path.stem)
+    if parent_match is None or stem_match is None:
+        raise ValueError(
+            f"Expected timeseries path Pos{{position}}/ch{{channel}}.csv, got {csv_path}"
+        )
+    return int(parent_match.group(1)), int(stem_match.group(1))
+
+
+def build_position_signal_slide_channel_lookup(mapping: SlideMapping) -> dict[tuple[int, int], int]:
+    lookup: dict[tuple[int, int], int] = {}
+    for slide_channel, entry in mapping.items():
+        for position in entry.positions:
+            key = (position, entry.signal_channel)
+            if key in lookup and lookup[key] != slide_channel:
+                raise ValueError(
+                    f"Ambiguous slide channel for position {position} "
+                    f"signal channel {entry.signal_channel}: "
+                    f"{lookup[key]} and {slide_channel}"
+                )
+            lookup[key] = slide_channel
+    return lookup
+
+
+def resolve_slide_channel(csv_path: Path, mapping: SlideMapping) -> int:
+    position, signal_channel = parse_timeseries_csv_path(csv_path)
+    lookup = build_position_signal_slide_channel_lookup(mapping)
+    key = (position, signal_channel)
+    if key not in lookup:
+        raise ValueError(
+            f"No assay mapping entry for Pos{position} signal channel {signal_channel} ({csv_path})"
+        )
+    return lookup[key]
 
 
 def infer_workspace_for_plot_csv(csv_file: Path) -> Path:
     parent = csv_file.parent.resolve()
     if parent.name == RESULTS_DIRNAME:
         return parent.parent
+    if parent.parent.name == TIMESERIES_DIRNAME:
+        return parent.parent.parent
     return parent
 
 

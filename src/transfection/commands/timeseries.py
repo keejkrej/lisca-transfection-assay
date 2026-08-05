@@ -15,8 +15,9 @@ from transfection.services.timeseries import (
 
 NAME = "timeseries"
 HELP = (
-    "Read roi/PosN stacks, compute mask-corrected intensity metrics per sample row in assay.json, "
-    "and write timeseries/scS_chC.csv (+ .xlsx) under the workspace."
+    "Read roi/PosN stacks, compute intensity metrics per position, "
+    "and write timeseries/PosN/chC.csv (+ .xlsx) under the workspace. "
+    "Uses assay.json analysis.skipSegment to choose masked vs full-ROI metrics."
 )
 
 
@@ -29,7 +30,7 @@ def timeseries(
             file_okay=False,
             dir_okay=True,
             metavar="WORKSPACE",
-            help="Workspace with assay.json, roi/, and mask/.",
+            help="Workspace with assay.json, roi/, and mask/ (unless analysis.skipSegment).",
         ),
     ],
     assay: Annotated[
@@ -47,7 +48,7 @@ def timeseries(
         typer.Option(
             "--mask-channel",
             min=0,
-            help="Override mask TIFF channel. Defaults to each sample row's maskChannel.",
+            help="Override mask TIFF channel. Defaults to each sample row's brightfield.",
         ),
     ] = None,
     correction_quartile: Annotated[
@@ -71,8 +72,8 @@ def timeseries(
         assay=assay,
         mask_channel=mask_channel,
         correction_quartile=correction_quartile,
-        on_csv_written=lambda slide_channel, resolved_output_csv, position_count: typer.echo(
-            format_written_timeseries_csv_message(slide_channel, resolved_output_csv, position_count)
+        on_csv_written=lambda position, resolved_output_csv, row_count: typer.echo(
+            format_written_timeseries_csv_message(position, resolved_output_csv, row_count)
         ),
         jobs=jobs,
     )

@@ -39,7 +39,7 @@ def plot_fit(
         typer.Option(
             "--interval",
             min=0.0,
-            help="Frame interval in minutes. Default: assay.json info2.",
+            help="Frame interval in minutes. Default: assay.json interval.",
         ),
     ] = None,
     output: Annotated[

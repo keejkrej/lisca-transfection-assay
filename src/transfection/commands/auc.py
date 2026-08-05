@@ -14,7 +14,7 @@ NAME = "auc"
 HELP = (
     "Integrate every metrics CSV in <workspace>/timeseries/ and write "
     f"<workspace>/{paths.RESULTS_DIRNAME}/auc.csv and auc.xlsx. "
-    "Frame interval from --interval or assay.json info2.timelapseAmount/Unit."
+    "Frame interval from --interval or assay.json interval.value/unit."
 )
 
 
@@ -35,7 +35,7 @@ def auc(
         typer.Option(
             "--interval",
             min=0.0,
-            help="Frame interval in minutes. Default: assay.json info2.timelapseAmount/Unit.",
+            help="Frame interval in minutes. Default: assay.json interval.value/unit.",
         ),
     ] = None,
     assay: Annotated[

@@ -49,14 +49,23 @@ def read_position_index(pos_dir: Path) -> PositionIndex:
 
     raw = json.loads(index_path.read_text(encoding="utf-8"))
     axis_order = str(raw.get("axisOrder", "")).upper()
-    if not axis_order:
-        raise ValueError(f"{index_path} is missing axisOrder")
+    if axis_order != "TCZYX":
+        raise ValueError(f"{index_path}: unsupported axisOrder {axis_order!r} (expected TCZYX)")
+
+    time_count = int(raw.get("timeCount", 1))
+    channel_count = int(raw.get("channelCount", 1))
+    z_count = int(raw.get("zCount", 1))
+    time_indices = _resolve_time_indices(raw.get("timeIndices"), time_count=time_count, index_path=index_path)
 
     rois: list[RoiCrop] = []
     for roi_entry in raw.get("rois", []):
         file_name = str(roi_entry["fileName"])
-        shape = tuple(int(value) for value in roi_entry["shape"])
         bbox = roi_entry.get("bbox") or {}
+        w = _coerce_optional_int(bbox.get("w"))
+        h = _coerce_optional_int(bbox.get("h"))
+        if w is None or h is None:
+            raise ValueError(f"{index_path}: ROI {roi_entry.get('roi')} missing bbox.w/bbox.h")
+        shape = (time_count, channel_count, z_count, h, w)
         rois.append(
             RoiCrop(
                 roi=int(roi_entry["roi"]),
@@ -64,23 +73,20 @@ def read_position_index(pos_dir: Path) -> PositionIndex:
                 shape=shape,
                 x=_coerce_optional_int(bbox.get("x")),
                 y=_coerce_optional_int(bbox.get("y")),
-                w=_coerce_optional_int(bbox.get("w")),
-                h=_coerce_optional_int(bbox.get("h")),
+                w=w,
+                h=h,
             )
         )
 
     if not rois:
         raise ValueError(f"No ROI entries found in {index_path}")
 
-    time_count = int(raw.get("timeCount", 1))
-    time_indices = _resolve_time_indices(raw.get("timeIndices"), time_count=time_count, index_path=index_path)
-
     return PositionIndex(
         position=int(raw.get("position", 0)),
         axis_order=axis_order,
         time_count=time_count,
-        channel_count=int(raw.get("channelCount", 1)),
-        z_count=int(raw.get("zCount", 1)),
+        channel_count=channel_count,
+        z_count=z_count,
         time_indices=time_indices,
         rois=tuple(rois),
     )
@@ -149,5 +155,3 @@ def roi_frame_2d(
     if frame.ndim != 2:
         raise ValueError(f"Expected a 2D ROI frame, got shape={frame.shape}")
     return frame
-
-

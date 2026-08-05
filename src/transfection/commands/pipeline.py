@@ -11,7 +11,8 @@ from transfection.services.pipeline import format_pipeline_done, run_pipeline
 NAME = "pipeline"
 HELP = (
     "Run the full transfection order from assay.json: "
-    "segment → timeseries → plot-timeseries → auc → plot-auc → fit → plot-fit."
+    "segment → timeseries → plot-timeseries → auc → plot-auc → fit → plot-fit. "
+    "analysis.skipSegment skips segment and uses full-ROI timeseries."
 )
 
 

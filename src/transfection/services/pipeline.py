@@ -15,6 +15,7 @@ class PipelineResult:
     workspace: Path
     interval_minutes: float
     max_onset_minutes: float
+    skip_segment: bool
     auc_csv: Path
     fit_csv: Path
 
@@ -32,18 +33,21 @@ def run_pipeline(
     config = load_assay_for_workspace(workspace, assay)
     interval = require_interval_minutes(config)
     max_onset = config.max_onset_minutes
+    skip_segment = config.skip_segment
 
-    segment.run_segment(
-        workspace=workspace,
-        mapping=config.mapping,
-        variation_radius=variation_radius,
-        gaussian_sigma=gaussian_sigma,
-        force=force,
-        jobs=jobs,
-    )
+    if not skip_segment:
+        segment.run_segment(
+            workspace=workspace,
+            mapping=config.mapping,
+            variation_radius=variation_radius,
+            gaussian_sigma=gaussian_sigma,
+            force=force,
+            jobs=jobs,
+        )
     timeseries.run_timeseries(
         workspace=workspace,
         mapping=config.mapping,
+        skip_segment=skip_segment,
         jobs=jobs,
     )
     plot_timeseries.run_plot_timeseries(
@@ -63,6 +67,7 @@ def run_pipeline(
         workspace=workspace,
         interval_minutes=interval,
         max_onset_minutes=max_onset,
+        skip_segment=skip_segment,
         auc_csv=auc_csv,
         fit_csv=fit_csv,
     )
@@ -71,7 +76,8 @@ def run_pipeline(
 def format_pipeline_done(result: PipelineResult) -> str:
     return (
         f"pipeline done workspace={result.workspace} "
-        f"interval={result.interval_minutes} max_onset_minutes={result.max_onset_minutes}\n"
+        f"interval={result.interval_minutes} max_onset_minutes={result.max_onset_minutes} "
+        f"skip_segment={result.skip_segment}\n"
         f"  auc: {result.auc_csv}\n"
         f"  fit: {result.fit_csv}\n"
         f"  plots under {result.workspace / RESULTS_DIRNAME}/"

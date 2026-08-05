@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from transfection import core as paths
-from transfection.core import load_timeseries_csv
+from transfection.core import SlideMapping, load_assay_for_workspace, load_timeseries_csv, resolve_slide_channel
 from transfection.core.export import parallel_xlsx_path, write_csv_and_parallel_xlsx
 from transfection.services import auc
 
@@ -53,10 +53,17 @@ class FitResult:
     expression_amplitude: float
 
 
-def integrate_fit_csvs(timeseries_csvs: list[Path], *, interval: float, output_csv: Path | None) -> Path:
+def integrate_fit_csvs(
+    timeseries_csvs: list[Path],
+    *,
+    interval: float,
+    mapping: SlideMapping,
+    output_csv: Path | None,
+) -> Path:
     return run_fit_with_jobs(
         timeseries_csvs,
         interval=interval,
+        mapping=mapping,
         output_csv=output_csv,
         max_onset_minutes=0.0,
         jobs=1,
@@ -67,6 +74,7 @@ def run_fit_with_jobs(
     timeseries_csvs: list[Path],
     *,
     interval: float,
+    mapping: SlideMapping,
     output_csv: Path | None,
     max_onset_minutes: float | None,
     jobs: int,
@@ -78,10 +86,14 @@ def run_fit_with_jobs(
     if jobs < 1:
         raise ValueError(f"--jobs must be >= 1, got {jobs}")
 
-    resolved_csvs = sorted((csv_path.resolve() for csv_path in timeseries_csvs), key=lambda path: path.name)
+    resolved_csvs = sorted(
+        (csv_path.resolve() for csv_path in timeseries_csvs),
+        key=lambda path: (path.parent.name, path.name),
+    )
     fit_df = compute_fit_table(
         resolved_csvs,
         interval=interval,
+        mapping=mapping,
         max_onset_minutes=max_onset_minutes,
         jobs=jobs,
     )
@@ -347,6 +359,7 @@ def compute_fit_table(
     timeseries_csvs: list[Path],
     *,
     interval: float,
+    mapping: SlideMapping,
     max_onset_minutes: float | None = 0.0,
     jobs: int = 1,
 ) -> pd.DataFrame:
@@ -356,7 +369,7 @@ def compute_fit_table(
     tasks: list[tuple[int | None, dict[str, int], list[float], list[float], float]] = []
     for csv_path in timeseries_csvs:
         df = load_timeseries_csv(csv_path)
-        slide_channel = auc.parse_slide_channel(csv_path)
+        slide_channel = resolve_slide_channel(csv_path, mapping)
         group_columns = [column for column in auc.GROUP_COLUMNS if column in df.columns]
         if not group_columns:
             raise ValueError(f"{csv_path} has no supported grouping columns: {auc.GROUP_COLUMNS}")
@@ -482,13 +495,16 @@ def run_fit(
     interval: float,
     max_onset_minutes: float = 0.0,
     jobs: int = 1,
+    assay: Path | None = None,
 ) -> Path:
+    config = load_assay_for_workspace(workspace, assay)
     timeseries_csvs = paths.discover_timeseries_csvs(paths.workspace_timeseries_dir(workspace))
     results_dir = paths.workspace_results_dir(workspace)
     output_csv = default_output_csv_path(timeseries_csvs, None, results_dir=results_dir)
     return run_fit_with_jobs(
         timeseries_csvs,
         interval=interval,
+        mapping=config.mapping,
         output_csv=output_csv,
         max_onset_minutes=max_onset_minutes,
         jobs=jobs,

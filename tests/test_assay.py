@@ -27,24 +27,24 @@ def test_build_mapping_from_samples() -> None:
     mapping = build_slide_mapping_from_samples(
         [
             {
-                "channel": "0",
+                "slide": "0",
                 "name": "condA",
-                "signalChannel": "2",
-                "maskChannel": "0",
+                "fluorescence": "2",
+                "brightfield": "0",
                 "positions": "10:11",
             },
             {
-                "channel": "1",
+                "slide": "1",
                 "name": "  ",
-                "signalChannel": "1",
-                "maskChannel": "0",
+                "fluorescence": "1",
+                "brightfield": "0",
                 "positions": "1",
             },
             {
-                "channel": "1",
+                "slide": "1",
                 "name": "condB",
-                "signalChannel": "1",
-                "maskChannel": "0",
+                "fluorescence": "1",
+                "brightfield": "0",
                 "positions": "20",
             },
         ],
@@ -58,92 +58,60 @@ def test_build_mapping_from_samples() -> None:
     assert mapping[1].sample_name == "condB"
 
 
+def _minimal_assay(**overrides: object) -> dict:
+    payload: dict = {
+        "type": "transfection",
+        "name": "fixture",
+        "data": {"type": "nd2", "path": ""},
+        "workspace": {"path": ""},
+        "interval": {"value": 10, "unit": "minute"},
+        "samples": [
+            {
+                "slide": "0",
+                "name": "condA",
+                "brightfield": "0",
+                "fluorescence": "1",
+                "positions": "1",
+            }
+        ],
+        "analysis": {"maxOnsetMinutes": 30},
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_load_assay_json(tmp_path: Path) -> None:
     path = tmp_path / "assay.json"
-    path.write_text(
-        json.dumps(
-            {
-                "assayId": "transfection",
-                "assayLabel": "fixture",
-                "dataSourceKind": None,
-                "info1": {
-                    "name": "fixture",
-                    "dataPath": "",
-                    "folderSubfolderTemplate": "",
-                    "folderFilenameTemplate": "",
-                    "saveTo": "",
-                },
-                "info2": {
-                    "timelapseAmount": 10,
-                    "timelapseUnit": "minute",
-                    "selectedFeatures": [],
-                },
-                "info3": {
-                    "samples": [
-                        {
-                            "channel": "0",
-                            "name": "condA",
-                            "positionStart": "1",
-                            "positionFinish": "1",
-                            "maskChannel": "0",
-                            "signalChannel": "1",
-                            "positions": "1",
-                        }
-                    ]
-                },
-                "analysis": {"maxOnsetMinutes": 30},
-            }
-        ),
-        encoding="utf-8",
-    )
+    path.write_text(json.dumps(_minimal_assay()), encoding="utf-8")
     config = load_assay(path)
-    assert config.assay_id == "transfection"
+    assert config.assay_type == "transfection"
+    assert config.name == "fixture"
     assert config.interval_minutes == 10.0
     assert config.max_onset_minutes == 30.0
+    assert config.skip_segment is False
     assert config.mapping[0].signal_channel == 1
     assert require_interval_minutes(config) == 10.0
     assert require_interval_minutes(config, override=5.0) == 5.0
 
 
-def test_default_max_onset_when_analysis_omitted(tmp_path: Path) -> None:
-    from transfection.core.assay import DEFAULT_MAX_ONSET_MINUTES
-
+def test_skip_segment_from_analysis(tmp_path: Path) -> None:
     path = tmp_path / "assay.json"
     path.write_text(
-        json.dumps(
-            {
-                "assayId": "transfection",
-                "assayLabel": "fixture",
-                "info1": {
-                    "name": "fixture",
-                    "dataPath": "",
-                    "folderSubfolderTemplate": "",
-                    "folderFilenameTemplate": "",
-                    "saveTo": "",
-                },
-                "info2": {
-                    "selectedFeatures": [],
-                    "timelapseAmount": None,
-                    "timelapseUnit": "minute",
-                },
-                "info3": {
-                    "samples": [
-                        {
-                            "channel": "0",
-                            "name": "condA",
-                            "positionStart": "1",
-                            "positionFinish": "1",
-                            "maskChannel": "0",
-                            "signalChannel": "1",
-                            "positions": "1",
-                        }
-                    ]
-                },
-            }
-        ),
+        json.dumps(_minimal_assay(analysis={"maxOnsetMinutes": 30, "skipSegment": True})),
         encoding="utf-8",
     )
-    from transfection.core.assay import DEFAULT_INTERVAL_MINUTES
+    config = load_assay(path)
+    assert config.skip_segment is True
+
+
+def test_default_max_onset_when_analysis_omitted(tmp_path: Path) -> None:
+    from transfection.core.assay import DEFAULT_INTERVAL_MINUTES, DEFAULT_MAX_ONSET_MINUTES
+
+    path = tmp_path / "assay.json"
+    assay = _minimal_assay()
+    del assay["analysis"]
+    assay["interval"] = {"value": None, "unit": "minute"}
+    path.write_text(json.dumps(assay), encoding="utf-8")
 
     config = load_assay(path)
     assert config.max_onset_minutes == DEFAULT_MAX_ONSET_MINUTES
@@ -160,6 +128,6 @@ def test_interval_units() -> None:
 
 def test_missing_samples_errors(tmp_path: Path) -> None:
     path = tmp_path / "assay.json"
-    path.write_text(json.dumps({"info3": {"samples": []}}), encoding="utf-8")
+    path.write_text(json.dumps({"type": "transfection", "samples": []}), encoding="utf-8")
     with pytest.raises(ValueError, match="no slide channels"):
         load_assay(path)

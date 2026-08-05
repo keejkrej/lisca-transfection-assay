@@ -45,7 +45,7 @@ def plot_timeseries(
         typer.Option(
             "--interval",
             min=0.0,
-            help="Minutes per frame. Default: parent workspace assay.json info2.",
+            help="Minutes per frame. Default: parent workspace assay.json interval.",
         ),
     ] = None,
     output: Annotated[

@@ -1,6 +1,6 @@
 """In-memory slide-channel mapping used by analysis stages.
 
-Built from Studio `assay.json` (`info3.samples`). Position ranges use inclusive
+Built from Studio `assay.json` (`samples[]`). Position ranges use inclusive
 Studio semantics (`1:12` → 1…12), matching `crates/lisca`.
 """
 
