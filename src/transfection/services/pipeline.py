@@ -58,7 +58,7 @@ def run_pipeline(
         interval=interval,
         max_onset_minutes=max_onset,
     )
-    plot_fit.run_plot_fit(fit_csv, output=None, interval=interval, columns=3)
+    plot_fit.run_plot_fit(fit_csv, output=None, interval=interval, columns=None)
     return PipelineResult(
         workspace=workspace,
         interval_minutes=interval,

@@ -47,7 +47,7 @@ def run_plot_fit(
     *,
     output: Path | None,
     interval: float,
-    columns: int,
+    columns: int | None,
 ) -> list[Path]:
     resolved_fit_csv = fit_csv.resolve()
     df = load_fit_csv(resolved_fit_csv)
@@ -232,7 +232,7 @@ def write_fitted_trace_plots(
     output_plot: Path,
     *,
     interval: float,
-    columns: int,
+    columns: int | None,
     mapping: SlideMapping,
     slide_channel_names: dict[int, str],
 ) -> list[Path]:
@@ -276,17 +276,17 @@ def write_fitted_trace_grid(
     output_plot: Path,
     *,
     interval: float,
-    columns: int,
+    columns: int | None,
     mapping: SlideMapping,
     slide_channel_names: dict[int, str],
     ylim_fn,
 ) -> None:
-    rows = math.ceil(len(panels) / columns)
+    rows, cols = plot_layout.resolve_subplot_grid(len(panels), columns)
     fig, axes = plt.subplots(
         rows,
-        columns,
+        cols,
         squeeze=False,
-        figsize=plot_layout.figure_size_for_panels(len(panels)),
+        figsize=plot_layout.figure_size_for_grid(rows, cols),
     )
     axes_flat = axes.flatten()
     fit_lookup = (
@@ -329,7 +329,7 @@ def write_fitted_trace_grid(
             )
         )
         ax.set_xlabel("minutes")
-        ax.set_ylabel("corrected intensity")
+        ax.set_ylabel("intensity")
         y_low, y_high = ylim_fn(panel_index)
         ax.set_ylim(y_low, y_high)
 

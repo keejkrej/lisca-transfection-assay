@@ -94,7 +94,7 @@ def plot_timeseries_single_panel(
         panels,
         traces_plot,
         y_column="corrected",
-        y_label="corrected intensity",
+        y_label="intensity",
         interval=interval,
         ylim=per_panel_ylims[0],
         slide_channel_names=slide_channel_names,
@@ -103,7 +103,7 @@ def plot_timeseries_single_panel(
         panels,
         traces_shared_plot,
         y_column="corrected",
-        y_label="corrected intensity",
+        y_label="intensity",
         interval=interval,
         ylim=shared_ylim,
         slide_channel_names=slide_channel_names,
@@ -193,7 +193,7 @@ def plot_fit_traces_single_panel(
     label = next(iter(slide_channel_names.values()), "fitted traces")
     ax.set_title(f"{label} ({plotted_trace_count} traces)")
     ax.set_xlabel("minutes")
-    ax.set_ylabel("corrected intensity")
+    ax.set_ylabel("intensity")
     y_low, y_high = plot_timeseries.percentile_ylim(np.concatenate(all_predicted))
     ax.set_ylim(y_low, y_high)
     fig.tight_layout()

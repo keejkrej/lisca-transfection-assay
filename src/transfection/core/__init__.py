@@ -20,7 +20,10 @@ from transfection.core.constants import (
     PROG_NAME,
     RESULTS_DIRNAME,
     TIMESERIES_DIRNAME,
+    figure_size_for_grid,
     figure_size_for_panels,
+    resolve_subplot_grid,
+    subplot_grid_shape,
 )
 from transfection.core.mask import (
     default_mask_path,
@@ -81,7 +84,10 @@ __all__ = [
     "FIGURE_SIZE_GRID_IN",
     "FIGURE_SIZE_IN",
     "FIGURE_SIZE_SINGLE_IN",
+    "figure_size_for_grid",
     "figure_size_for_panels",
+    "resolve_subplot_grid",
+    "subplot_grid_shape",
     "HELP",
     "PROG_NAME",
     "RESULTS_DIRNAME",

@@ -53,13 +53,16 @@ def plot_fit(
         ),
     ] = None,
     columns: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--columns",
             min=1,
-            help="Number of subplot columns in the fitted-trace grid.",
+            help=(
+                "Subplot columns for fitted-trace grids. Default: auto from panel count "
+                "(same layout table as plot-timeseries, up to 12 samples / 3×4)."
+            ),
         ),
-    ] = 3,
+    ] = None,
     assay: Annotated[
         Path | None,
         typer.Option(

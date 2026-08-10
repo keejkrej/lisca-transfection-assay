@@ -20,8 +20,8 @@ from transfection.services.plot_timeseries import (
 NAME = "plot-timeseries"
 HELP = (
     f"Plot metrics CSVs in a {paths.TIMESERIES_DIRNAME}/ folder as PNG grids under "
-    f"{paths.RESULTS_DIRNAME}/ (traces, area, shared-y variants). "
-    "X axis is frame index × interval (minutes)."
+    f"{paths.RESULTS_DIRNAME}/ (individual traces, mean/median/IQR summary, area, "
+    "shared-y variants). X axis is frame index × interval (minutes)."
 )
 
 
@@ -55,18 +55,21 @@ def plot_timeseries(
             "-o",
             help=(
                 f"Primary output PNG path. Default: <workspace>/{paths.RESULTS_DIRNAME}/traces.png "
-                "with companion shared-y / area plots."
+                "with companion summary / shared-y / area plots."
             ),
         ),
     ] = None,
     columns: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--columns",
             min=1,
-            help="Number of subplot columns in the output grid.",
+            help=(
+                "Subplot columns. Default: auto from sample count "
+                "(1→1×1, 2→1×2, 3–4→2×2, 5–6→2×3, 7–9→3×3, 10–12→3×4)."
+            ),
         ),
-    ] = 3,
+    ] = None,
     assay: Annotated[
         Path | None,
         typer.Option(
