@@ -74,14 +74,15 @@ def build_position_signal_slide_channel_lookup(mapping: SlideMapping) -> dict[tu
     lookup: dict[tuple[int, int], int] = {}
     for slide_channel, entry in mapping.items():
         for position in entry.positions:
-            key = (position, entry.signal_channel)
-            if key in lookup and lookup[key] != slide_channel:
-                raise ValueError(
-                    f"Ambiguous slide channel for position {position} "
-                    f"signal channel {entry.signal_channel}: "
-                    f"{lookup[key]} and {slide_channel}"
-                )
-            lookup[key] = slide_channel
+            for signal_channel in entry.signal_channels:
+                key = (position, signal_channel)
+                if key in lookup and lookup[key] != slide_channel:
+                    raise ValueError(
+                        f"Ambiguous slide channel for position {position} "
+                        f"signal channel {signal_channel}: "
+                        f"{lookup[key]} and {slide_channel}"
+                    )
+                lookup[key] = slide_channel
     return lookup
 
 

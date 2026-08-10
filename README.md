@@ -20,11 +20,11 @@ Uses a local `.uv` and `uv sync`.
 ```bash
 .uv/uv run transfection --help
 
-.uv/uv run transfection segment WORKSPACE --jobs 8
-.uv/uv run transfection timeseries WORKSPACE --jobs 8
+.uv/uv run transfection segment WORKSPACE
+.uv/uv run transfection timeseries WORKSPACE
 .uv/uv run transfection auc WORKSPACE
-.uv/uv run transfection fit WORKSPACE --jobs 8
-.uv/uv run transfection pipeline WORKSPACE --jobs 8
+.uv/uv run transfection fit WORKSPACE
+.uv/uv run transfection pipeline WORKSPACE
 ```
 
 Full stage list and `assay.json` schema: `AGENTS.md`.

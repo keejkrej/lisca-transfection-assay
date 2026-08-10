@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import os
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
-
 
 from transfection.core import (
     SlideChannelMapping,
@@ -19,6 +17,7 @@ from transfection.core import (
     validate_channel_index,
     write_mask_tif,
 )
+from transfection.core.parallel import worker_count
 
 
 
@@ -127,10 +126,7 @@ def run_slide_segmentation(
     gaussian_sigma: float = 1.0,
     force: bool = False,
     on_mask_written: MaskWrittenCallback | None = None,
-    jobs: int = 1,
 ) -> SlideSegmentationRunResult:
-    if jobs < 1:
-        raise ValueError(f"--jobs must be >= 1, got {jobs}")
     if variation_radius < 0:
         raise ValueError(f"--variation-radius must be >= 0, got {variation_radius}")
     if gaussian_sigma < 0:
@@ -160,11 +156,11 @@ def run_slide_segmentation(
         current_output, current_count = written_by_channel.get(slide_channel, (first_output, 0))
         written_by_channel[slide_channel] = (current_output, current_count + written_count)
 
-    if jobs == 1 or len(tasks) <= 1:
+    max_workers = worker_count(len(tasks))
+    if max_workers == 1:
         for task in tasks:
             consume(_position_segmentation_task(task))
     else:
-        max_workers = min(jobs, len(tasks), os.cpu_count() or jobs)
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(_position_segmentation_task, task) for task in tasks]
             for future in as_completed(futures):
@@ -220,7 +216,6 @@ def run_segment(
     gaussian_sigma: float = 1.0,
     force: bool = False,
     on_mask_written: MaskWrittenCallback | None = None,
-    jobs: int = 1,
 ) -> SlideSegmentationRunResult:
     if mapping is None:
         mapping = load_assay_for_workspace(workspace, assay).mapping
@@ -231,5 +226,4 @@ def run_segment(
         gaussian_sigma=gaussian_sigma,
         force=force,
         on_mask_written=on_mask_written,
-        jobs=jobs,
     )

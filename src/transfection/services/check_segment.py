@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -22,6 +21,7 @@ from transfection.core import (
     roi_frame_2d,
     validate_channel_index,
 )
+from transfection.core.parallel import worker_count
 from transfection.services.segment import format_skipped_positions_message
 
 
@@ -275,13 +275,14 @@ def _position_tasks(
             str(workspace),
             slide_channel,
             entry.mask_channel,
-            entry.signal_channel,
+            signal_channel,
             resolved_pos,
             str(output_dir),
             fps,
             force,
         )
         for slide_channel, entry in slide_positions.items()
+        for signal_channel in entry.signal_channels
         for resolved_pos in entry.positions
     ]
 
@@ -299,10 +300,7 @@ def run_check_segment(
     fps: float = 6.0,
     force: bool = False,
     on_video_written: VideoWrittenCallback | None = None,
-    jobs: int = 1,
 ) -> CheckSegmentRunResult:
-    if jobs < 1:
-        raise ValueError(f"--jobs must be >= 1, got {jobs}")
     if fps <= 0:
         raise ValueError(f"--fps must be > 0, got {fps}")
 
@@ -334,11 +332,11 @@ def run_check_segment(
             for video in position_videos:
                 on_video_written(video)
 
-    if jobs == 1 or len(tasks) <= 1:
+    max_workers = worker_count(len(tasks))
+    if max_workers == 1:
         for task in tasks:
             consume(_position_check_segment_task(task))
     else:
-        max_workers = min(jobs, len(tasks), os.cpu_count() or jobs)
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(_position_check_segment_task, task) for task in tasks]
             for future in as_completed(futures):

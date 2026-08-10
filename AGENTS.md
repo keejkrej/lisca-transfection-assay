@@ -44,14 +44,14 @@ Names must stay in lockstep with Rust `lisca-analyze` (no alternate column alias
 
 ```sh
 uv run transfection --help
-uv run transfection segment WORKSPACE [--assay PATH] [--jobs N] [--force]
-uv run transfection timeseries WORKSPACE [--assay PATH] [--jobs N]
+uv run transfection segment WORKSPACE [--assay PATH] [--force]
+uv run transfection timeseries WORKSPACE [--assay PATH]
 uv run transfection plot-timeseries WORKSPACE|TIMESERIES_DIR [--interval M]
 uv run transfection auc WORKSPACE [--interval M]
 uv run transfection plot-auc WORKSPACE|results/auc.csv
-uv run transfection fit WORKSPACE [--interval M] [--max-onset-minutes M] [--jobs N]
+uv run transfection fit WORKSPACE [--interval M] [--max-onset-minutes M]
 uv run transfection plot-fit WORKSPACE|results/fit.csv [--interval M]
-uv run transfection pipeline WORKSPACE [--jobs N] [--force]   # needs roi/
+uv run transfection pipeline WORKSPACE [--force]   # needs roi/
 uv run transfection check-segment WORKSPACE   # manual mask QA only
 ```
 
@@ -60,6 +60,7 @@ Defaults:
 - `--assay` → `<workspace>/assay.json`
 - `--interval` / `--max-onset-minutes` → from `assay.json` when omitted (`interval`, `analysis.maxOnsetMinutes`)
 - Segment skip / full-ROI timeseries → `analysis.skipSegment` (replaces CLI `--full-frame`)
+- Parallel stages (segment / timeseries / auc / fit) always use `os.cpu_count()` workers; timeseries writes each CSV as soon as that position finishes
 
 ### ROI crop (not in this package)
 
@@ -109,12 +110,13 @@ Studio-compatible JSON object. Canonical Effect Schema: `@lisca/contracts` → `
 | `data.path` | string | no | Source path (crop tooling; unused by analysis stages) |
 | `interval.value` | number \| null | no (default **10** min) | Positive frame step |
 | `interval.unit` | `"second"` \| `"minute"` \| `"hour"` | no | Converted to minutes; default unit `minute` |
-| `samples` | array | **yes** | One row per condition / slide |
-| `samples[].slide` | string int | **yes** | Slide key for AUC/fit grouping (resolved from `PosN/chC` + mapping) |
+| `samples` | array | **yes** | One row per condition / slide channel |
+| `samples[].slideChannel` | int | **yes** | Slide-channel key for AUC/fit grouping (resolved from `PosN/chC` + mapping) |
 | `samples[].name` | string | **yes** | Condition label on plots (empty name → row skipped) |
-| `samples[].fluorescence` | string int | **yes** | Intensity channel index in ROI stacks |
-| `samples[].brightfield` | string int | **yes** | Channel used for Otsu masks |
 | `samples[].positions` | string | **yes** | Position list/ranges (see below) |
+| `analysis.channels.mask` | int | **yes** | Default channel used for Otsu masks |
+| `analysis.channels.signal` | int[] | **yes** | Default intensity channel indices (non-empty; one timeseries CSV per channel) |
+| `analysis.sampleChannels` | array | no | Per-sample `{slideChannel, mask, signal}` overrides keyed by `slideChannel` |
 | `analysis.maxOnsetMinutes` | number | no | Fit **onset time** (\(t_0\)) search cap; default **`120`**; set `0` to fix onset at 0 |
 | `analysis.skipSegment` | boolean | no | When true, skip Otsu and use full-ROI p10 background timeseries |
 
@@ -138,23 +140,23 @@ Comma-separated tokens. Ranges are **inclusive** on both ends (Studio semantics)
   "interval": { "value": 10, "unit": "minute" },
   "samples": [
     {
-      "slide": "0",
+      "slideChannel": 0,
       "name": "condA",
-      "positions": "1:12",
-      "brightfield": "0",
-      "fluorescence": "1"
+      "positions": "1:12"
     },
     {
-      "slide": "1",
+      "slideChannel": 1,
       "name": "condB",
-      "positions": "13:24",
-      "brightfield": "0",
-      "fluorescence": "1"
+      "positions": "13:24"
     }
   ],
   "analysis": {
     "maxOnsetMinutes": 120,
-    "skipSegment": false
+    "skipSegment": false,
+    "channels": { "mask": 0, "signal": [1] },
+    "sampleChannels": [
+      { "slideChannel": 1, "mask": 0, "signal": [1, 2] }
+    ]
   }
 }
 ```

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +11,7 @@ import pandas as pd
 from transfection import core as paths
 from transfection.core import SlideMapping, load_assay_for_workspace, load_timeseries_csv, resolve_slide_channel
 from transfection.core.export import parallel_xlsx_path, write_csv_and_parallel_xlsx
+from transfection.core.parallel import worker_count
 from transfection.services import auc
 
 
@@ -66,7 +66,6 @@ def integrate_fit_csvs(
         mapping=mapping,
         output_csv=output_csv,
         max_onset_minutes=0.0,
-        jobs=1,
     )
 
 
@@ -77,14 +76,11 @@ def run_fit_with_jobs(
     mapping: SlideMapping,
     output_csv: Path | None,
     max_onset_minutes: float | None,
-    jobs: int,
 ) -> Path:
     if interval <= 0:
         raise ValueError(f"--interval must be > 0, got {interval}")
     if max_onset_minutes is not None and max_onset_minutes < 0:
         raise ValueError(f"--max-onset-minutes must be >= 0, got {max_onset_minutes}")
-    if jobs < 1:
-        raise ValueError(f"--jobs must be >= 1, got {jobs}")
 
     resolved_csvs = sorted(
         (csv_path.resolve() for csv_path in timeseries_csvs),
@@ -95,7 +91,6 @@ def run_fit_with_jobs(
         interval=interval,
         mapping=mapping,
         max_onset_minutes=max_onset_minutes,
-        jobs=jobs,
     )
     resolved_output_csv = default_output_csv_path(resolved_csvs, output_csv)
     write_fit_csv(fit_df, resolved_output_csv)
@@ -361,11 +356,7 @@ def compute_fit_table(
     interval: float,
     mapping: SlideMapping,
     max_onset_minutes: float | None = 0.0,
-    jobs: int = 1,
 ) -> pd.DataFrame:
-    if jobs < 1:
-        raise ValueError(f"--jobs must be >= 1, got {jobs}")
-
     tasks: list[tuple[int | None, dict[str, int], list[float], list[float], float]] = []
     for csv_path in timeseries_csvs:
         df = load_timeseries_csv(csv_path)
@@ -390,14 +381,13 @@ def compute_fit_table(
     if not tasks:
         raise ValueError("No fit rows produced")
 
-    first_pass_results = _run_fit_tasks(tasks, jobs=jobs, fixed_protein_decay_rate=None)
+    first_pass_results = _run_fit_tasks(tasks, fixed_protein_decay_rate=None)
     shared_protein_decay_rate = _pooled_protein_decay_rate(first_pass_results)
     if shared_protein_decay_rate is None:
         rows = [_failed_fit_row(slide_channel, group_values) for slide_channel, group_values, *_ in tasks]
     else:
         rows = _run_fit_tasks(
             tasks,
-            jobs=jobs,
             fixed_protein_decay_rate=shared_protein_decay_rate,
             max_onset_minutes=max_onset_minutes,
         )
@@ -410,15 +400,14 @@ def compute_fit_table(
 def _run_fit_tasks(
     tasks: list[tuple[int | None, dict[str, int], list[float], list[float], float]],
     *,
-    jobs: int,
     fixed_protein_decay_rate: float | None,
     max_onset_minutes: float | None = 0.0,
 ) -> list[dict[str, object]]:
-    if jobs == 1 or len(tasks) <= 1:
-        return [_fit_trace_task((task, fixed_protein_decay_rate, max_onset_minutes)) for task in tasks]
-
-    max_workers = min(jobs, len(tasks), os.cpu_count() or jobs)
+    max_workers = worker_count(len(tasks))
     payloads = ((task, fixed_protein_decay_rate, max_onset_minutes) for task in tasks)
+    if max_workers == 1:
+        return [_fit_trace_task(payload) for payload in payloads]
+
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         return list(executor.map(_fit_trace_task, payloads))
 
@@ -494,7 +483,6 @@ def run_fit(
     workspace: Path,
     interval: float,
     max_onset_minutes: float = 0.0,
-    jobs: int = 1,
     assay: Path | None = None,
 ) -> Path:
     config = load_assay_for_workspace(workspace, assay)
@@ -507,5 +495,4 @@ def run_fit(
         mapping=config.mapping,
         output_csv=output_csv,
         max_onset_minutes=max_onset_minutes,
-        jobs=jobs,
     )

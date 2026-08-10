@@ -65,14 +65,6 @@ def segment(
             help="Overwrite existing mask TIFF files.",
         ),
     ] = False,
-    jobs: Annotated[
-        int,
-        typer.Option(
-            "--jobs",
-            min=1,
-            help="Worker processes across per-position segmentations.",
-        ),
-    ] = 1,
 ) -> None:
     result = run_segment(
         workspace=workspace,
@@ -83,7 +75,6 @@ def segment(
         on_mask_written=lambda slide_channel, output_dir, mask_count: typer.echo(
             format_written_masks_message(slide_channel, output_dir, mask_count)
         ),
-        jobs=jobs,
     )
     if result.skipped_positions:
         typer.echo(format_skipped_positions_message(result.skipped_positions))

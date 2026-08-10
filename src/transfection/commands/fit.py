@@ -60,14 +60,6 @@ def fit(
             help="Path to assay.json (default: <workspace>/assay.json).",
         ),
     ] = None,
-    jobs: Annotated[
-        int,
-        typer.Option(
-            "--jobs",
-            min=1,
-            help="Worker processes across independent trace fits.",
-        ),
-    ] = 1,
 ) -> None:
     config = load_assay_for_workspace(workspace, assay)
     resolved_interval = require_interval_minutes(config, override=interval)
@@ -78,6 +70,5 @@ def fit(
         workspace=workspace,
         interval=resolved_interval,
         max_onset_minutes=resolved_onset,
-        jobs=jobs,
     )
     typer.echo(format_written_fit_csv_message(resolved_output_csv))

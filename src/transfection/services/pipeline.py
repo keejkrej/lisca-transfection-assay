@@ -24,7 +24,6 @@ def run_pipeline(
     *,
     workspace: Path,
     assay: Path | None = None,
-    jobs: int = 1,
     force: bool = False,
     variation_radius: int = 2,
     gaussian_sigma: float = 1.0,
@@ -42,13 +41,11 @@ def run_pipeline(
             variation_radius=variation_radius,
             gaussian_sigma=gaussian_sigma,
             force=force,
-            jobs=jobs,
         )
     timeseries.run_timeseries(
         workspace=workspace,
         mapping=config.mapping,
         skip_segment=skip_segment,
-        jobs=jobs,
     )
     plot_timeseries.run_plot_timeseries(
         metrics_dir=workspace / TIMESERIES_DIRNAME,
@@ -60,7 +57,6 @@ def run_pipeline(
         workspace=workspace,
         interval=interval,
         max_onset_minutes=max_onset,
-        jobs=jobs,
     )
     plot_fit.run_plot_fit(fit_csv, output=None, interval=interval, columns=3)
     return PipelineResult(

@@ -38,14 +38,6 @@ def pipeline(
             help="Path to assay.json (default: <workspace>/assay.json).",
         ),
     ] = None,
-    jobs: Annotated[
-        int,
-        typer.Option(
-            "--jobs",
-            min=1,
-            help="Worker processes for segment, timeseries, and fit.",
-        ),
-    ] = 1,
     force: Annotated[
         bool,
         typer.Option(
@@ -55,5 +47,5 @@ def pipeline(
         ),
     ] = False,
 ) -> None:
-    result = run_pipeline(workspace=workspace, assay=assay, jobs=jobs, force=force)
+    result = run_pipeline(workspace=workspace, assay=assay, force=force)
     typer.echo(format_pipeline_done(result))

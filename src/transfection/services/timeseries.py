@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -20,7 +19,7 @@ from transfection.core import (
     write_metrics_csv,
 )
 from transfection.core.export import parallel_xlsx_path
-
+from transfection.core.parallel import worker_count
 
 
 OUTPUT_COLUMNS = ("roi", "t", "area", "background", "sum", "corrected")
@@ -126,22 +125,20 @@ def run_slide_timeseries(
     full_frame: bool = False,
     correction_quartile: float = DELIVERY_CORRECTION_QUARTILE,
     on_csv_written: CsvWrittenCallback | None = None,
-    jobs: int = 1,
 ) -> SlideTimeseriesRunResult:
-    if jobs < 1:
-        raise ValueError(f"--jobs must be >= 1, got {jobs}")
     workspace = workspace.resolve()
     slide_positions = mapping
     position_tasks: list[tuple[str, int, int, int, int, bool]] = [
         (
             str(workspace),
             slide_channel,
-            entry.signal_channel,
+            signal_channel,
             entry.mask_channel if mask_channel is None else mask_channel,
             resolved_pos,
             full_frame,
         )
         for slide_channel, entry in slide_positions.items()
+        for signal_channel in entry.signal_channels
         for resolved_pos in entry.positions
     ]
 
@@ -149,12 +146,32 @@ def run_slide_timeseries(
         raise ValueError("assay mapping defines no valid positions")
 
     skipped_positions: dict[int, list[int]] = defaultdict(list)
-    rows: list[tuple[int, int, int, pd.DataFrame | None]] = []
+    written_outputs: list[tuple[int, Path, int]] = []
 
-    if jobs == 1 or len(position_tasks) <= 1:
+    def consume_result(
+        slide_channel: int,
+        signal_channel: int,
+        position: int,
+        metrics_df: pd.DataFrame | None,
+    ) -> None:
+        if metrics_df is None:
+            skipped_positions[slide_channel].append(position)
+            return
+        output_csv, row_count = _write_position_csv(
+            workspace,
+            position=position,
+            signal_channel=signal_channel,
+            metrics_df=metrics_df,
+        )
+        written_outputs.append((position, output_csv, row_count))
+        if on_csv_written is not None:
+            on_csv_written(position, output_csv, row_count)
+
+    max_workers = worker_count(len(position_tasks))
+    if max_workers == 1:
         for ws_str, slide_channel, signal_channel, task_mask_channel, resolved_pos, task_full_frame in position_tasks:
-            rows.append(
-                _run_position_metrics(
+            consume_result(
+                *_run_position_metrics(
                     Path(ws_str),
                     slide_channel=slide_channel,
                     signal_channel=signal_channel,
@@ -164,31 +181,10 @@ def run_slide_timeseries(
                 )
             )
     else:
-        max_workers = min(jobs, len(position_tasks), os.cpu_count() or jobs)
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(_position_timeseries_task, task) for task in position_tasks]
             for fut in as_completed(futures):
-                rows.append(fut.result())
-
-    written_outputs: list[tuple[int, Path, int]] = []
-    signal_channels = {
-        (slide_channel, position): entry.signal_channel
-        for slide_channel, entry in slide_positions.items()
-        for position in entry.positions
-    }
-    for slide_channel, _signal_channel, position, metrics_df in sorted(rows, key=lambda row: row[2]):
-        if metrics_df is None:
-            skipped_positions[slide_channel].append(position)
-            continue
-        output_csv, row_count = _write_position_csv(
-            workspace,
-            position=position,
-            signal_channel=signal_channels[(slide_channel, position)],
-            metrics_df=metrics_df,
-        )
-        written_outputs.append((position, output_csv, row_count))
-        if on_csv_written is not None:
-            on_csv_written(position, output_csv, row_count)
+                consume_result(*fut.result())
 
     if not written_outputs:
         if skipped_positions:
@@ -202,9 +198,13 @@ def run_slide_timeseries(
             )
         raise ValueError("assay mapping defines no valid positions")
 
+    written_outputs.sort(key=lambda item: item[0])
     return SlideTimeseriesRunResult(
         written_outputs=written_outputs,
-        skipped_positions=skipped_positions,
+        skipped_positions={
+            slide_channel: sorted(positions)
+            for slide_channel, positions in sorted(skipped_positions.items())
+        },
     )
 
 
@@ -242,7 +242,6 @@ def run_timeseries(
     skip_segment: bool | None = None,
     correction_quartile: float = DELIVERY_CORRECTION_QUARTILE,
     on_csv_written: CsvWrittenCallback | None = None,
-    jobs: int = 1,
 ) -> SlideTimeseriesRunResult:
     if mapping is None or skip_segment is None:
         config = load_assay_for_workspace(workspace, assay)
@@ -257,5 +256,4 @@ def run_timeseries(
         full_frame=skip_segment,
         correction_quartile=correction_quartile,
         on_csv_written=on_csv_written,
-        jobs=jobs,
     )

@@ -67,14 +67,6 @@ def check_segment(
             help="Overwrite existing MP4 files.",
         ),
     ] = False,
-    jobs: Annotated[
-        int,
-        typer.Option(
-            "--jobs",
-            min=1,
-            help="Worker processes across per-position review video generation.",
-        ),
-    ] = 1,
 ) -> None:
     result = run_check_segment(
         workspace=workspace,
@@ -82,7 +74,6 @@ def check_segment(
         output=output,
         fps=fps,
         force=force,
-        jobs=jobs,
         on_video_written=lambda video: typer.echo(
             format_written_check_segment_video_message(video)
         ),

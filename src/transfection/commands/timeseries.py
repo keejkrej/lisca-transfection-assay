@@ -48,7 +48,7 @@ def timeseries(
         typer.Option(
             "--mask-channel",
             min=0,
-            help="Override mask TIFF channel. Defaults to each sample row's brightfield.",
+            help="Override mask TIFF channel. Defaults to analysis.channels.mask / sampleChannels.",
         ),
     ] = None,
     correction_quartile: Annotated[
@@ -58,14 +58,6 @@ def timeseries(
             help="Deprecated; timeseries uses segment masks for background correction.",
         ),
     ] = DELIVERY_CORRECTION_QUARTILE,
-    jobs: Annotated[
-        int,
-        typer.Option(
-            "--jobs",
-            min=1,
-            help="Worker processes across per-position ROI metric extractions.",
-        ),
-    ] = 1,
 ) -> None:
     result = run_timeseries(
         workspace=workspace,
@@ -75,7 +67,6 @@ def timeseries(
         on_csv_written=lambda position, resolved_output_csv, row_count: typer.echo(
             format_written_timeseries_csv_message(position, resolved_output_csv, row_count)
         ),
-        jobs=jobs,
     )
     if result.skipped_positions:
         typer.echo(format_skipped_positions_message(result.skipped_positions))

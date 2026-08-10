@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from transfection.core.assay import (
-    build_slide_mapping_from_samples,
+    build_slide_mapping_from_assay,
     load_assay,
     parse_interval_minutes,
     require_interval_minutes,
@@ -23,38 +23,37 @@ def test_positions_inclusive_ranges() -> None:
     assert parse_position_spec("1:5:2") == [1, 3, 5]
 
 
-def test_build_mapping_from_samples() -> None:
-    mapping = build_slide_mapping_from_samples(
+def test_build_mapping_from_assay_channels() -> None:
+    mapping = build_slide_mapping_from_assay(
         [
             {
-                "slide": "0",
+                "slideChannel": 0,
                 "name": "condA",
-                "fluorescence": "2",
-                "brightfield": "0",
                 "positions": "10:11",
             },
             {
-                "slide": "1",
+                "slideChannel": 1,
                 "name": "  ",
-                "fluorescence": "1",
-                "brightfield": "0",
                 "positions": "1",
             },
             {
-                "slide": "1",
+                "slideChannel": 1,
                 "name": "condB",
-                "fluorescence": "1",
-                "brightfield": "0",
                 "positions": "20",
             },
         ],
+        {
+            "channels": {"mask": 0, "signal": [2]},
+            "sampleChannels": [{"slideChannel": 1, "mask": 0, "signal": [1, 3]}],
+        },
         source="test",
     )
     assert list(mapping.keys()) == [0, 1]
     assert mapping[0].positions == [10, 11]
-    assert mapping[0].signal_channel == 2
+    assert mapping[0].signal_channels == [2]
     assert mapping[0].sample_name == "condA"
     assert mapping[1].positions == [20]
+    assert mapping[1].signal_channels == [1, 3]
     assert mapping[1].sample_name == "condB"
 
 
@@ -67,14 +66,15 @@ def _minimal_assay(**overrides: object) -> dict:
         "interval": {"value": 10, "unit": "minute"},
         "samples": [
             {
-                "slide": "0",
+                "slideChannel": 0,
                 "name": "condA",
-                "brightfield": "0",
-                "fluorescence": "1",
                 "positions": "1",
             }
         ],
-        "analysis": {"maxOnsetMinutes": 30},
+        "analysis": {
+            "maxOnsetMinutes": 30,
+            "channels": {"mask": 0, "signal": [1]},
+        },
     }
     payload.update(overrides)
     return payload
@@ -89,7 +89,7 @@ def test_load_assay_json(tmp_path: Path) -> None:
     assert config.interval_minutes == 10.0
     assert config.max_onset_minutes == 30.0
     assert config.skip_segment is False
-    assert config.mapping[0].signal_channel == 1
+    assert config.mapping[0].signal_channels == [1]
     assert require_interval_minutes(config) == 10.0
     assert require_interval_minutes(config, override=5.0) == 5.0
 
@@ -97,19 +97,27 @@ def test_load_assay_json(tmp_path: Path) -> None:
 def test_skip_segment_from_analysis(tmp_path: Path) -> None:
     path = tmp_path / "assay.json"
     path.write_text(
-        json.dumps(_minimal_assay(analysis={"maxOnsetMinutes": 30, "skipSegment": True})),
+        json.dumps(
+            _minimal_assay(
+                analysis={
+                    "maxOnsetMinutes": 30,
+                    "skipSegment": True,
+                    "channels": {"mask": 0, "signal": [1]},
+                }
+            )
+        ),
         encoding="utf-8",
     )
     config = load_assay(path)
     assert config.skip_segment is True
 
 
-def test_default_max_onset_when_analysis_omitted(tmp_path: Path) -> None:
+def test_default_max_onset_when_analysis_omitted_channels_required(tmp_path: Path) -> None:
     from transfection.core.assay import DEFAULT_INTERVAL_MINUTES, DEFAULT_MAX_ONSET_MINUTES
 
     path = tmp_path / "assay.json"
     assay = _minimal_assay()
-    del assay["analysis"]
+    assay["analysis"] = {"channels": {"mask": 0, "signal": [1]}}
     assay["interval"] = {"value": None, "unit": "minute"}
     path.write_text(json.dumps(assay), encoding="utf-8")
 
@@ -130,4 +138,13 @@ def test_missing_samples_errors(tmp_path: Path) -> None:
     path = tmp_path / "assay.json"
     path.write_text(json.dumps({"type": "transfection", "samples": []}), encoding="utf-8")
     with pytest.raises(ValueError, match="no slide channels"):
+        load_assay(path)
+
+
+def test_missing_channels_errors(tmp_path: Path) -> None:
+    path = tmp_path / "assay.json"
+    assay = _minimal_assay()
+    del assay["analysis"]
+    path.write_text(json.dumps(assay), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing analysis.channels"):
         load_assay(path)

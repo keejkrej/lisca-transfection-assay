@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from transfection import core as paths
 from transfection.core import SlideMapping, load_assay_for_workspace, load_timeseries_csv, resolve_slide_channel
 from transfection.core.export import parallel_xlsx_path, write_csv_and_parallel_xlsx
+from transfection.core.parallel import worker_count
 
 
 GROUP_COLUMNS = ("pos", "roi")
 OUTPUT_COLUMNS = ("slide_channel", "pos", "roi", "auc")
 
+AucTraceTask = tuple[int, dict[str, int], list[float], list[float], float]
 
 
 def default_results_table_csv_path(results_dir: Path, *, kind: str) -> Path:
@@ -53,16 +57,45 @@ def default_output_csv_path(
     return timeseries_csvs[0].with_name("auc.csv").resolve()
 
 
-def integrate_trace(trace_df: pd.DataFrame, *, interval: float) -> float:
-    sorted_df = trace_df.sort_values("t").reset_index(drop=True)
-    if len(sorted_df) < 2:
+def integrate_series(t_values: list[float], corrected: list[float], *, interval: float) -> float:
+    if len(t_values) < 2:
         return 0.0
 
-    times = sorted_df["t"].astype(float).to_numpy() * interval
-    values = sorted_df["corrected"].astype(float).to_numpy()
+    times = np.asarray(t_values, dtype=float) * interval
+    values = np.asarray(corrected, dtype=float)
+    order = np.argsort(times, kind="mergesort")
+    times = times[order]
+    values = values[order]
     widths = times[1:] - times[:-1]
     heights = (values[:-1] + values[1:]) * 0.5
     return float((widths * heights).sum())
+
+
+def integrate_trace(trace_df: pd.DataFrame, *, interval: float) -> float:
+    sorted_df = trace_df.sort_values("t").reset_index(drop=True)
+    return integrate_series(
+        sorted_df["t"].astype(float).tolist(),
+        sorted_df["corrected"].astype(float).tolist(),
+        interval=interval,
+    )
+
+
+def _auc_trace_task(task: AucTraceTask) -> dict[str, object]:
+    slide_channel, group_values, t_values, corrected, interval = task
+    return {
+        "slide_channel": slide_channel,
+        **group_values,
+        "auc": integrate_series(t_values, corrected, interval=interval),
+    }
+
+
+def _run_auc_tasks(tasks: list[AucTraceTask]) -> list[dict[str, object]]:
+    max_workers = worker_count(len(tasks))
+    if max_workers == 1:
+        return [_auc_trace_task(task) for task in tasks]
+
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        return list(executor.map(_auc_trace_task, tasks))
 
 
 def compute_auc_table(
@@ -71,7 +104,7 @@ def compute_auc_table(
     interval: float,
     mapping: SlideMapping,
 ) -> pd.DataFrame:
-    rows: list[dict[str, object]] = []
+    tasks: list[AucTraceTask] = []
     for csv_path in timeseries_csvs:
         df = load_timeseries_csv(csv_path)
         slide_channel = resolve_slide_channel(csv_path, mapping)
@@ -84,18 +117,20 @@ def compute_auc_table(
                 group_key = (group_key,)
             row = dict(zip(group_columns, group_key, strict=True))
             sorted_df = trace_df.sort_values("t").reset_index(drop=True)
-            row.update(
-                {
-                    "slide_channel": slide_channel,
-                    "auc": integrate_trace(sorted_df, interval=interval),
-                }
+            tasks.append(
+                (
+                    slide_channel,
+                    {column: int(value) for column, value in row.items()},
+                    sorted_df["t"].astype(float).tolist(),
+                    sorted_df["corrected"].astype(float).tolist(),
+                    interval,
+                )
             )
-            rows.append(row)
 
-    if not rows:
+    if not tasks:
         raise ValueError("No AUC rows produced")
 
-    result = pd.DataFrame(rows)
+    result = pd.DataFrame(_run_auc_tasks(tasks))
     sort_columns = [column for column in ("slide_channel", *GROUP_COLUMNS) if column in result.columns]
     return result.sort_values(sort_columns).reset_index(drop=True).loc[:, list(OUTPUT_COLUMNS)]
 

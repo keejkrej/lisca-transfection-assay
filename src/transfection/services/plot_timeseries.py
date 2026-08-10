@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
@@ -19,10 +20,13 @@ from transfection.core import (
     load_assay_for_workspace,
     load_slide_channel_labels,
     load_timeseries_csv,
+    parse_timeseries_csv_path,
     resolve_slide_channel,
     trace_color_alpha_from_fluor_name,
 )
 
+
+SamplePanel = tuple[int, list[tuple[Path, pd.DataFrame]]]
 
 
 def render_plot_timeseries(
@@ -43,74 +47,87 @@ def render_plot_timeseries(
         key=lambda path: (path.parent.name, path.name),
     )
     resolved_output_plot = default_output_plot_path(resolved_csvs, output, results_dir=results_dir)
-    resolved_shared_y_plot = unified_y_output_path(resolved_output_plot)
     panels = [(csv_path, load_timeseries_csv(csv_path)) for csv_path in resolved_csvs]
+    sample_panels = group_panels_by_slide_channel(panels, mapping)
 
     written_plots = list(
         write_metric_plots(
-            panels,
+            sample_panels,
             resolved_output_plot,
             y_column="corrected",
             y_label="corrected intensity",
             interval=interval,
             columns=columns,
-            mapping=mapping,
             slide_channel_names=slide_channel_names,
         )
     )
-    if all("area" in df.columns for _, df in panels):
+    if all("area" in df.columns for _, frames in sample_panels for _, df in frames):
         area_output_plot = metric_output_path(resolved_output_plot, "area")
         written_plots.extend(
             write_metric_plots(
-                panels,
+                sample_panels,
                 area_output_plot,
                 y_column="area",
                 y_label="mask area",
                 interval=interval,
                 columns=columns,
-                mapping=mapping,
                 slide_channel_names=slide_channel_names,
             )
         )
     return tuple(written_plots)
 
 
-def write_metric_plots(
+def group_panels_by_slide_channel(
     panels: list[tuple[Path, pd.DataFrame]],
+    mapping: SlideMapping,
+) -> list[SamplePanel]:
+    grouped: dict[int, list[tuple[Path, pd.DataFrame]]] = defaultdict(list)
+    for csv_path, df in panels:
+        slide_channel = resolve_slide_channel(csv_path, mapping)
+        position, _signal_channel = parse_timeseries_csv_path(csv_path)
+        panel_df = df if "pos" in df.columns else df.assign(pos=position)
+        grouped[slide_channel].append((csv_path, panel_df))
+    return [(slide_channel, grouped[slide_channel]) for slide_channel in sorted(grouped)]
+
+
+def write_metric_plots(
+    sample_panels: list[SamplePanel],
     output_plot: Path,
     *,
     y_column: str,
     y_label: str,
     interval: float,
     columns: int,
-    mapping: SlideMapping,
     slide_channel_names: dict[int, str],
 ) -> tuple[Path, Path]:
-    panel_ylims = [percentile_ylim(panel_values(df, y_column)) for _, df in panels]
+    panel_ylims = [
+        percentile_ylim(
+            np.concatenate([panel_values(df, y_column) for _, df in frames]) if frames else np.array([])
+        )
+        for _, frames in sample_panels
+    ]
     unified_low = min(lo for lo, _ in panel_ylims)
     unified_high = max(hi for _, hi in panel_ylims)
     unified_low, unified_high = expand_degenerate_ylim(unified_low, unified_high)
     shared_y_plot = unified_y_output_path(output_plot)
     write_subplot_grid(
-        panels,
+        sample_panels,
         output_plot,
         y_column=y_column,
         y_label=y_label,
         interval=interval,
         ylim_fn=lambda i: panel_ylims[i],
         columns=columns,
-        mapping=mapping,
         slide_channel_names=slide_channel_names,
     )
     write_subplot_grid(
-        panels,
+        sample_panels,
         shared_y_plot,
         y_column=y_column,
         y_label=y_label,
         interval=interval,
         ylim_fn=lambda _i: (unified_low, unified_high),
         columns=columns,
-        mapping=mapping,
         slide_channel_names=slide_channel_names,
     )
     return (output_plot, shared_y_plot)
@@ -168,18 +185,13 @@ def expand_degenerate_ylim(low: float, high: float) -> tuple[float, float]:
 
 
 def subplot_title(
-    csv_path: Path,
+    slide_channel: int,
     trace_count: int | None = None,
     *,
-    mapping: SlideMapping,
     slide_channel_names: dict[int, str] | None = None,
 ) -> str:
     names = slide_channel_names or {}
-    sc = resolve_slide_channel(csv_path, mapping)
-    if sc in names:
-        label = names[sc]
-    else:
-        label = f"slide channel {sc}"
+    label = names.get(slide_channel, f"slide channel {slide_channel}")
     if trace_count is None:
         return label
     return f"{label} ({trace_count} traces)"
@@ -193,20 +205,18 @@ def trace_group_columns(df) -> list[str]:
 
 
 def trace_naming_haystack(
-    csv_path: Path,
-    mapping: SlideMapping,
+    slide_channel: int,
+    frames: list[tuple[Path, pd.DataFrame]],
     slide_channel_names: dict[int, str],
 ) -> str:
-    """Text used to infer fluor colors (filename, stem, optional slide channel label)."""
-    parts = [csv_path.name, csv_path.stem]
-    sc = resolve_slide_channel(csv_path, mapping)
-    if sc in slide_channel_names:
-        parts.append(slide_channel_names[sc])
+    """Text used to infer fluor colors (sample label plus CSV names)."""
+    parts = [slide_channel_names.get(slide_channel, f"slide channel {slide_channel}")]
+    parts.extend(csv_path.name for csv_path, _ in frames)
     return " ".join(parts)
 
 
 def write_subplot_grid(
-    panels: list[tuple[Path, pd.DataFrame]],
+    sample_panels: list[SamplePanel],
     output_plot: Path,
     *,
     y_column: str,
@@ -214,33 +224,37 @@ def write_subplot_grid(
     interval: float,
     ylim_fn: Callable[[int], tuple[float, float]],
     columns: int,
-    mapping: SlideMapping,
     slide_channel_names: dict[int, str],
 ) -> None:
-    rows = math.ceil(len(panels) / columns)
+    rows = math.ceil(len(sample_panels) / columns)
     fig, axes = plt.subplots(
         rows,
         columns,
         squeeze=False,
-        figsize=plot_layout.figure_size_for_panels(len(panels)),
+        figsize=plot_layout.figure_size_for_panels(len(sample_panels)),
     )
     axes_flat = axes.flatten()
 
-    for index, (ax, (csv_path, df)) in enumerate(zip(axes_flat, panels)):
+    for index, (ax, (slide_channel, frames)) in enumerate(zip(axes_flat, sample_panels)):
         trace_color, trace_alpha = trace_color_alpha_from_fluor_name(
-            trace_naming_haystack(csv_path, mapping, slide_channel_names)
+            trace_naming_haystack(slide_channel, frames, slide_channel_names)
         )
-        trace_groups = df.groupby(trace_group_columns(df), sort=True, dropna=False)
-        for _, roi_df in trace_groups:
-            t_minutes = roi_df["t"].astype(float).to_numpy(dtype=float) * interval
-            ax.plot(t_minutes, roi_df[y_column], color=trace_color, alpha=trace_alpha)
-        ax.set_title(subplot_title(csv_path, trace_groups.ngroups, mapping=mapping, slide_channel_names=slide_channel_names))
+        trace_count = 0
+        for _csv_path, df in frames:
+            trace_groups = df.groupby(trace_group_columns(df), sort=True, dropna=False)
+            for _, roi_df in trace_groups:
+                t_minutes = roi_df["t"].astype(float).to_numpy(dtype=float) * interval
+                ax.plot(t_minutes, roi_df[y_column], color=trace_color, alpha=trace_alpha)
+            trace_count += int(trace_groups.ngroups)
+        ax.set_title(
+            subplot_title(slide_channel, trace_count, slide_channel_names=slide_channel_names)
+        )
         ax.set_xlabel("minutes")
         ax.set_ylabel(y_label)
         y_low, y_high = ylim_fn(index)
         ax.set_ylim(y_low, y_high)
 
-    for ax in axes_flat[len(panels):]:
+    for ax in axes_flat[len(sample_panels) :]:
         ax.axis("off")
 
     fig.tight_layout()

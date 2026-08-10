@@ -1,7 +1,8 @@
 """In-memory slide-channel mapping used by analysis stages.
 
-Built from Studio `assay.json` (`samples[]`). Position ranges use inclusive
-Studio semantics (`1:12` → 1…12), matching `crates/lisca`.
+Built from Studio `assay.json` (`samples[]` + `analysis.channels` /
+`analysis.sampleChannels`). Position ranges use inclusive Studio semantics
+(`1:12` → 1…12), matching `crates/lisca`.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class SlideChannelMapping:
     positions: list[int]
-    signal_channel: int
+    signal_channels: list[int]
     mask_channel: int
     sample_name: str
 
@@ -84,8 +85,11 @@ def validate_slide_mapping(mapping: SlideMapping) -> SlideMapping:
             raise ValueError(f"Slide channel keys must be non-negative, got {slide_channel}")
         if not entry.positions:
             raise ValueError(f"slide channel {slide_channel} defines no positions")
-        if entry.signal_channel < 0:
-            raise ValueError(f"signal_channel must be non-negative, got {entry.signal_channel}")
+        if not entry.signal_channels:
+            raise ValueError(f"slide channel {slide_channel}: signal channel list must be non-empty")
+        for signal_channel in entry.signal_channels:
+            if signal_channel < 0:
+                raise ValueError(f"signal channel must be non-negative, got {signal_channel}")
         if entry.mask_channel < 0:
             raise ValueError(f"mask_channel must be non-negative, got {entry.mask_channel}")
         sample_name = entry.sample_name.strip()
@@ -93,7 +97,7 @@ def validate_slide_mapping(mapping: SlideMapping) -> SlideMapping:
             raise ValueError(f"sample_name for slide channel {slide_channel} must be non-empty")
         ordered[slide_channel] = SlideChannelMapping(
             positions=sorted(set(entry.positions)),
-            signal_channel=entry.signal_channel,
+            signal_channels=list(entry.signal_channels),
             mask_channel=entry.mask_channel,
             sample_name=sample_name,
         )
