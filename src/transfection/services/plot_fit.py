@@ -328,7 +328,7 @@ def write_fitted_trace_grid(
                 slide_channel_names=slide_channel_names,
             )
         )
-        ax.set_xlabel("minutes")
+        ax.set_xlabel("time (min)")
         ax.set_ylabel("intensity")
         y_low, y_high = ylim_fn(panel_index)
         ax.set_ylim(y_low, y_high)

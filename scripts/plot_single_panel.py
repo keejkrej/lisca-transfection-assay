@@ -58,7 +58,7 @@ def _write_single_panel_traces(
 
     title = title_parts[0] if title_parts else "traces"
     ax.set_title(f"{title} ({trace_count} traces)")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel(y_label)
     ax.set_ylim(*ylim)
     fig.tight_layout()
@@ -192,7 +192,7 @@ def plot_fit_traces_single_panel(
 
     label = next(iter(slide_channel_names.values()), "fitted traces")
     ax.set_title(f"{label} ({plotted_trace_count} traces)")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("intensity")
     y_low, y_high = plot_timeseries.percentile_ylim(np.concatenate(all_predicted))
     ax.set_ylim(y_low, y_high)

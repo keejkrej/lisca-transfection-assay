@@ -66,7 +66,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc0["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc0_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     ax = axes[0, 1]
@@ -82,7 +82,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc1["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc1_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     ax = axes[0, 2]
@@ -98,7 +98,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc2["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc2_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     ax = axes[1, 0]
@@ -114,7 +114,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc3["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc3_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     ax = axes[1, 1]
@@ -130,7 +130,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc4["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc4_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     ax = axes[1, 2]
@@ -146,7 +146,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc5["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc5_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     fig.tight_layout()
@@ -539,7 +539,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc0["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc0_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     ax = axes[0, 1]
@@ -568,7 +568,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc1["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc1_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     ax = axes[0, 2]
@@ -597,7 +597,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc2["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc2_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     ax = axes[1, 0]
@@ -626,7 +626,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc3["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc3_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     ax = axes[1, 1]
@@ -655,7 +655,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc4["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc4_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     ax = axes[1, 2]
@@ -684,7 +684,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         np.percentile(sc5["corrected"].to_numpy(dtype=float), 95),
     )
     ax.set_title("sc5_ch1")
-    ax.set_xlabel("minutes")
+    ax.set_xlabel("time (min)")
     ax.set_ylabel("corrected intensity")
 
     fig.tight_layout()

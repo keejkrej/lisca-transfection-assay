@@ -185,7 +185,7 @@ def write_clean_2x2_summary(
         )
 
     fig.supxlabel(
-        "time (minutes)",
+        "time (min)",
         fontsize=LABEL_FONTSIZE,
         fontweight="bold",
         y=0.02,

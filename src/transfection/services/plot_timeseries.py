@@ -388,7 +388,7 @@ def write_subplot_grid(
         ax.set_title(
             subplot_title(slide_channel, trace_count, slide_channel_names=slide_channel_names)
         )
-        ax.set_xlabel("minutes")
+        ax.set_xlabel("time (min)")
         ax.set_ylabel(y_label)
         y_low, y_high = ylim_fn(index)
         ax.set_ylim(y_low, y_high)
@@ -421,7 +421,7 @@ def write_summary_subplot_grid(
         )
         if summary is None:
             ax.set_title(subplot_title(slide_channel, 0, slide_channel_names=slide_channel_names))
-            ax.set_xlabel("minutes")
+            ax.set_xlabel("time (min)")
             ax.set_ylabel(y_label)
             y_low, y_high = ylim_fn(index)
             ax.set_ylim(y_low, y_high)
@@ -459,7 +459,7 @@ def write_summary_subplot_grid(
         ax.set_title(
             subplot_title(slide_channel, trace_count, slide_channel_names=slide_channel_names)
         )
-        ax.set_xlabel("minutes")
+        ax.set_xlabel("time (min)")
         ax.set_ylabel(y_label)
         y_low, y_high = ylim_fn(index)
         ax.set_ylim(y_low, y_high)
