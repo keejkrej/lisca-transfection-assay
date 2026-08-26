@@ -2,6 +2,13 @@
 
 Agent-facing notes for the **transfection** analysis package (Python goal source for LiSCA Studio’s transfection pipeline).
 
+## Fleet
+
+PhD work is a multi-repo, multi-machine fleet. Before choosing a machine, cloning, or
+moving files, read `~/workspace/phd-notes/standard/README.md`. Status:
+`~/workspace/phd-notes/projects/lisca-transfection-assay.md`. Kinetic field names are
+owned by `~/workspace/lisca/CONTEXT.md` — do not add aliases here.
+
 ## Role
 
 | Layer | Responsibility |
