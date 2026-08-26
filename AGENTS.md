@@ -33,19 +33,8 @@ Studio wire id is **`transfection`** (root `type`). Prefer that when writing wor
 ## Kinetic terminology (Müller et al. 2024)
 
 Fits use the **basic translation–degradation model only** (no protein maturation).
-Code identifiers, CSV columns, and UI labels use the same names:
-
-| Code / CSV | Display | Paper |
-| --- | --- | --- |
-| `onset_time` | onset time | \(t_0\) |
-| `expression_rate` | expression rate | \(m_0 k_{TL}\) |
-| `mrna_lifetime` | mRNA lifetime | \(\tau_\mathrm{mRNA}\) |
-| `protein_lifetime` | protein lifetime | \(\tau_\mathrm{EGFP}\) |
-| `expression_amplitude` | (internal) | \(m_0 k_{TL}/(\delta-\beta)\) |
-| `baseline_intensity` | baseline intensity | additive baseline (not a kinetic rate) |
-
-Use **expression rate** for \(m_0 k_{TL}\) — never “transfection efficiency”.
-Names must stay in lockstep with Rust `lisca-analyze` (no alternate column aliases).
+Code/CSV/UI names are locked in `~/workspace/lisca/CONTEXT.md`. Use **expression
+rate** for \(m_0 k_{TL}\) — never “transfection efficiency”. No aliases.
 
 ## CLI
 
