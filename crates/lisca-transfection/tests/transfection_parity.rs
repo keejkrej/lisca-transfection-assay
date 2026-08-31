@@ -352,6 +352,10 @@ fn plot_fit_writes_expression_rate_vs_onset_time_png() {
         "must not write traces_fit_shared_y.png"
     );
     assert!(
+        !sample_results_dir(&fixture.root).join(FIT_SCATTER_PNG).exists(),
+        "scatter belongs at results/{FIT_SCATTER_PNG}, not per-sample"
+    );
+    assert!(
         !fixture.root.join("results").join("auc.csv").exists(),
         "must not write combined results/auc.csv"
     );
@@ -369,7 +373,7 @@ fn sample_xlsx(workspace: &Path, kind: &str) -> PathBuf {
 }
 
 fn fit_scatter_png(workspace: &Path) -> PathBuf {
-    sample_results_dir(workspace).join(FIT_SCATTER_PNG)
+    workspace.join("results").join(FIT_SCATTER_PNG)
 }
 
 fn assert_nonempty_png(path: &Path, side: &str) {

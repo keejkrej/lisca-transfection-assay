@@ -19,6 +19,7 @@ from transfection.core import (
     load_assay_for_workspace,
     require_named_samples,
     trace_color_alpha_from_fluor_name,
+    workspace_results_dir,
 )
 from transfection.core.sample_pack import (
     concat_sample_tables,
@@ -63,6 +64,7 @@ def run_plot_fit(
     dirnames = sample_pack_dirnames(mapping)
     names = {sc: entry.sample_name for sc, entry in mapping.items()}
     written_paths: list[Path] = list(publish_sample_tables_xlsx(workspace, mapping, "fit"))
+    loaded_tables: list[pd.DataFrame] = []
     for slide_channel, table in tables.items():
         dirname = dirnames.get(slide_channel)
         if dirname is None:
@@ -71,6 +73,7 @@ def run_plot_fit(
         if output is not None and len(tables) == 1:
             dest_dir = output.resolve()
         df = load_fit_table(table)
+        loaded_tables.append(df)
         names_for_sample = {**names, **labels_from_sample_column(df)}
         output_paths = default_output_plot_paths_for_dir(dest_dir)
         for parameter, label in PLOTTED_PARAMETERS:
@@ -116,11 +119,13 @@ def run_plot_fit(
                 traces_df=trace_table,
             )
         )
-        scatter_plot = dest_dir / "expression_rate_vs_onset_time.png"
+    if loaded_tables:
+        scatter_plot = workspace_results_dir(workspace) / "expression_rate_vs_onset_time.png"
         write_expression_rate_vs_onset_scatter(
-            df,
+            pd.concat(loaded_tables, ignore_index=True),
             scatter_plot,
-            slide_channel_names=names_for_sample,
+            slide_channel_names=names,
+            columns=columns,
         )
         written_paths.append(scatter_plot)
     if not written_paths:
@@ -179,8 +184,10 @@ def default_trace_plot_path(fit_csv: Path, output: Path | None) -> Path:
 
 
 def default_scatter_plot_path(fit_csv: Path, output: Path | None) -> Path:
-    destination_dir = fit_csv.parent if output is None else output.resolve()
-    return destination_dir / "expression_rate_vs_onset_time.png"
+    if output is not None:
+        return output.resolve() / "expression_rate_vs_onset_time.png"
+    workspace = infer_workspace_root(fit_csv)
+    return workspace_results_dir(workspace) / "expression_rate_vs_onset_time.png"
 
 
 def write_fit_boxplot(
@@ -264,6 +271,15 @@ def pearson_annotation(r: float | None, n: int) -> str:
     return f"r = {r:.2f}\nn = {n}"
 
 
+def scatter_sample_channels(df: pd.DataFrame, slide_channel_names: dict[int, str]) -> list[int]:
+    """Sample order for the scatter grid: sorted slide_channel, same as traces."""
+    if "slide_channel" in df.columns:
+        return sorted(int(channel) for channel in df["slide_channel"].dropna().unique().tolist())
+    if slide_channel_names:
+        return sorted(slide_channel_names)
+    return [0]
+
+
 def write_expression_rate_vs_onset_scatter(
     df: pd.DataFrame,
     output_plot: Path,
@@ -275,37 +291,49 @@ def write_expression_rate_vs_onset_scatter(
     if scatter_df.empty:
         raise ValueError("No successful finite fits available to plot expression rate vs onset time")
 
-    x = scatter_df["onset_time"].to_numpy(dtype=float)
-    y = scatter_df["expression_rate"].to_numpy(dtype=float)
-    if "slide_channel" in scatter_df.columns:
-        slide_channel = int(scatter_df["slide_channel"].iloc[0])
-        label = slide_channel_names.get(slide_channel, f"slide channel {slide_channel}")
-        title = plot_timeseries.subplot_title(slide_channel, slide_channel_names=slide_channel_names)
-    else:
-        label = next(iter(slide_channel_names.values()), "sample")
-        title = label
-    color, _trace_alpha = trace_color_alpha_from_fluor_name(label)
+    channels = scatter_sample_channels(df, slide_channel_names)
+    fig, axes, _rows, _cols = plot_timeseries.open_sample_subplot_grid(len(channels), columns)
+    axes_flat = axes.flatten()
 
-    fig, ax = plt.subplots(figsize=plot_layout.FIGURE_SIZE_SINGLE_IN)
-    ax.scatter(x, y, s=18, alpha=0.55, color=color)
-    ax.set_title(title)
-    ax.set_xlabel("onset time (min)")
-    ax.set_ylabel("expression rate")
-    x_low, x_high = plot_timeseries.percentile_ylim(x)
-    y_low, y_high = plot_timeseries.percentile_ylim(y)
-    ax.set_xlim(x_low, x_high)
-    ax.set_ylim(y_low, y_high)
-    ax.text(
-        0.05,
-        0.95,
-        pearson_annotation(pearson_r(x, y), int(x.size)),
-        transform=ax.transAxes,
-        va="top",
-        ha="left",
-    )
-    output_plot.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_plot, dpi=plot_layout.FIGURE_DPI, bbox_inches="tight")
-    plt.close(fig)
+    for ax, slide_channel in zip(axes_flat, channels, strict=False):
+        if "slide_channel" in scatter_df.columns:
+            panel = scatter_df.loc[scatter_df["slide_channel"] == slide_channel]
+        else:
+            panel = scatter_df
+        x = panel["onset_time"].to_numpy(dtype=float) if not panel.empty else np.array([], dtype=float)
+        y = (
+            panel["expression_rate"].to_numpy(dtype=float)
+            if not panel.empty
+            else np.array([], dtype=float)
+        )
+        label = slide_channel_names.get(slide_channel, f"slide channel {slide_channel}")
+        color, _trace_alpha = trace_color_alpha_from_fluor_name(label)
+        if x.size:
+            ax.scatter(x, y, s=18, alpha=0.55, color=color)
+            x_low, x_high = plot_timeseries.percentile_ylim(x)
+            y_low, y_high = plot_timeseries.percentile_ylim(y)
+            ax.set_xlim(x_low, x_high)
+            ax.set_ylim(y_low, y_high)
+        ax.set_title(
+            plot_timeseries.subplot_title(
+                slide_channel, slide_channel_names=slide_channel_names
+            )
+        )
+        ax.set_xlabel("onset time (min)")
+        ax.set_ylabel("expression rate")
+        ax.text(
+            0.05,
+            0.95,
+            pearson_annotation(pearson_r(x, y), int(x.size)),
+            transform=ax.transAxes,
+            va="top",
+            ha="left",
+        )
+
+    for ax in axes_flat[len(channels) :]:
+        ax.axis("off")
+
+    plot_timeseries.save_sample_subplot_grid(fig, output_plot)
 
 
 def fitted_trace_values(times_minutes: np.ndarray, fit_row: pd.Series) -> np.ndarray:

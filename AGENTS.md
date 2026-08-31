@@ -108,6 +108,7 @@ plot-timeseries → plot-auc → plot-fit
 | `mask/PosN/` | Segmentation masks (written by `segment`) |
 | `analysis/` | Pipeline intermediates, **CSV only**. `Pos{N}/ch{C}.csv` traces (`roi,t,area,background,sum,corrected`); `Pos{N}/auc.csv`; `Pos{N}/fit.csv`. No xlsx. Analysis stages do not require `samples[].name`. |
 | `results/<sample>/` | User-facing packs only (filesystem-safe `samples[].name`; prefix `slideChannel` if names collide). `traces.xlsx` / `auc.xlsx` / `fit.xlsx` (**xlsx only**) plus PNG plots. Missing `samples[]` fails here, not during timeseries. |
+| `results/expression_rate_vs_onset_time.png` | Fit scatter grid: one subplot per named sample (same `subplot_grid_shape` / `figure_size_for_panels` as traces). Pearson r and n per panel; successful finite fits only. |
 
 ## `assay.json` schema
 

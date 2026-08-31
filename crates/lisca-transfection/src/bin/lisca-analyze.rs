@@ -72,6 +72,7 @@ Commands (same stage names as `transfection`):
   plot-timeseries   Read analysis/ traces; write results/<sample>/traces.xlsx + traces.png / traces_summary.png / area.png
   plot-auc          Read analysis/ auc.csv; write results/<sample>/auc.xlsx + auc.png / auc_log.png
   plot-fit          Read analysis/ fit.csv; write results/<sample>/fit.xlsx + kinetic PNGs
+                    and results/expression_rate_vs_onset_time.png (one subplot per sample)
   pipeline          Analysis stages then plot stages (plot requires samples[].name)
                     (aliases: analyze, all)
 
