@@ -49,6 +49,7 @@ def _(mo):
 @app.cell
 def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
     import matplotlib.pyplot as plt
+    import math
     import numpy as np
 
     fig, axes = plt.subplots(2, 3, figsize=(12.0, 8.0), squeeze=False)
@@ -222,41 +223,41 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
     fig, ax = plt.subplots(figsize=(12.0, 8.0))
     ax.boxplot(
         [
-            (1.0 / fit_df.loc[
+            (math.log(2) / fit_df.loc[
                 fit_df["success"].astype(str).str.lower().eq("true")
                 & (fit_df["slide_channel"] == 0),
-                "protein_decay_rate",
-            ]).to_numpy(dtype=float),
-            (1.0 / fit_df.loc[
+                "protein_degradation_rate",
+            ]).to_numpy(dtype=float) / 60.0,
+            (math.log(2) / fit_df.loc[
                 fit_df["success"].astype(str).str.lower().eq("true")
                 & (fit_df["slide_channel"] == 1),
-                "protein_decay_rate",
-            ]).to_numpy(dtype=float),
-            (1.0 / fit_df.loc[
+                "protein_degradation_rate",
+            ]).to_numpy(dtype=float) / 60.0,
+            (math.log(2) / fit_df.loc[
                 fit_df["success"].astype(str).str.lower().eq("true")
                 & (fit_df["slide_channel"] == 2),
-                "protein_decay_rate",
-            ]).to_numpy(dtype=float),
-            (1.0 / fit_df.loc[
+                "protein_degradation_rate",
+            ]).to_numpy(dtype=float) / 60.0,
+            (math.log(2) / fit_df.loc[
                 fit_df["success"].astype(str).str.lower().eq("true")
                 & (fit_df["slide_channel"] == 3),
-                "protein_decay_rate",
-            ]).to_numpy(dtype=float),
-            (1.0 / fit_df.loc[
+                "protein_degradation_rate",
+            ]).to_numpy(dtype=float) / 60.0,
+            (math.log(2) / fit_df.loc[
                 fit_df["success"].astype(str).str.lower().eq("true")
                 & (fit_df["slide_channel"] == 4),
-                "protein_decay_rate",
-            ]).to_numpy(dtype=float),
-            (1.0 / fit_df.loc[
+                "protein_degradation_rate",
+            ]).to_numpy(dtype=float) / 60.0,
+            (math.log(2) / fit_df.loc[
                 fit_df["success"].astype(str).str.lower().eq("true")
                 & (fit_df["slide_channel"] == 5),
-                "protein_decay_rate",
-            ]).to_numpy(dtype=float),
+                "protein_degradation_rate",
+            ]).to_numpy(dtype=float) / 60.0,
         ],
         tick_labels=["0", "1", "2", "3", "4", "5"],
     )
     ax.set_xlabel("slide channel")
-    ax.set_ylabel("protein lifetime")
+    ax.set_ylabel("protein lifetime τ_EGFP (h)")
     fig.tight_layout()
     protein_lifetime_fig = fig
 
@@ -273,12 +274,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 0),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 0),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -292,12 +293,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 1),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 1),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -311,12 +312,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 2),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 2),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -330,12 +331,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 3),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 3),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -349,12 +350,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 4),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 4),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -368,12 +369,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 5),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 5),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -381,7 +382,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         tick_labels=["0", "1", "2", "3", "4", "5"],
     )
     ax.set_xlabel("slide channel")
-    ax.set_ylabel("expression rate")
+    ax.set_ylabel("expression rate m0 k_TL")
     fig.tight_layout()
     expression_rate_linear_fig = fig
 
@@ -398,12 +399,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 0),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 0),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -417,12 +418,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 1),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 1),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -436,12 +437,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 2),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 2),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -455,12 +456,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 3),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 3),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -474,12 +475,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 4),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 4),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -493,12 +494,12 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
                     fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 5),
-                        "mrna_decay_rate",
+                        "mrna_degradation_rate",
                     ].to_numpy(dtype=float)
                     - fit_df.loc[
                         fit_df["success"].astype(str).str.lower().eq("true")
                         & (fit_df["slide_channel"] == 5),
-                        "protein_decay_rate",
+                        "protein_degradation_rate",
                     ].to_numpy(dtype=float)
                 )
             ),
@@ -506,7 +507,7 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         tick_labels=["0", "1", "2", "3", "4", "5"],
     )
     ax.set_xlabel("slide channel")
-    ax.set_ylabel("expression rate")
+    ax.set_ylabel("expression rate m0 k_TL")
     ax.set_yscale("log")
     fig.tight_layout()
     expression_rate_log_fig = fig
@@ -527,8 +528,8 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
         dt = np.maximum(minutes - row["onset_time"], 0.0)
         predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
-            np.exp(-row["protein_decay_rate"] * dt)
-            - np.exp(-row["mrna_decay_rate"] * dt)
+            np.exp(-row["protein_degradation_rate"] * dt)
+            - np.exp(-row["mrna_degradation_rate"] * dt)
         )
         predicted = np.where(
             minutes < row["onset_time"], row["baseline_intensity"], predicted
@@ -556,8 +557,8 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
         dt = np.maximum(minutes - row["onset_time"], 0.0)
         predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
-            np.exp(-row["protein_decay_rate"] * dt)
-            - np.exp(-row["mrna_decay_rate"] * dt)
+            np.exp(-row["protein_degradation_rate"] * dt)
+            - np.exp(-row["mrna_degradation_rate"] * dt)
         )
         predicted = np.where(
             minutes < row["onset_time"], row["baseline_intensity"], predicted
@@ -585,8 +586,8 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
         dt = np.maximum(minutes - row["onset_time"], 0.0)
         predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
-            np.exp(-row["protein_decay_rate"] * dt)
-            - np.exp(-row["mrna_decay_rate"] * dt)
+            np.exp(-row["protein_degradation_rate"] * dt)
+            - np.exp(-row["mrna_degradation_rate"] * dt)
         )
         predicted = np.where(
             minutes < row["onset_time"], row["baseline_intensity"], predicted
@@ -614,8 +615,8 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
         dt = np.maximum(minutes - row["onset_time"], 0.0)
         predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
-            np.exp(-row["protein_decay_rate"] * dt)
-            - np.exp(-row["mrna_decay_rate"] * dt)
+            np.exp(-row["protein_degradation_rate"] * dt)
+            - np.exp(-row["mrna_degradation_rate"] * dt)
         )
         predicted = np.where(
             minutes < row["onset_time"], row["baseline_intensity"], predicted
@@ -643,8 +644,8 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
         dt = np.maximum(minutes - row["onset_time"], 0.0)
         predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
-            np.exp(-row["protein_decay_rate"] * dt)
-            - np.exp(-row["mrna_decay_rate"] * dt)
+            np.exp(-row["protein_degradation_rate"] * dt)
+            - np.exp(-row["mrna_degradation_rate"] * dt)
         )
         predicted = np.where(
             minutes < row["onset_time"], row["baseline_intensity"], predicted
@@ -672,8 +673,8 @@ def _(auc_df, fit_df, mo, sc0, sc1, sc2, sc3, sc4, sc5):
         minutes = trace["t"].to_numpy(dtype=float) * 10.0
         dt = np.maximum(minutes - row["onset_time"], 0.0)
         predicted = row["baseline_intensity"] + row["expression_amplitude"] * (
-            np.exp(-row["protein_decay_rate"] * dt)
-            - np.exp(-row["mrna_decay_rate"] * dt)
+            np.exp(-row["protein_degradation_rate"] * dt)
+            - np.exp(-row["mrna_degradation_rate"] * dt)
         )
         predicted = np.where(
             minutes < row["onset_time"], row["baseline_intensity"], predicted

@@ -6,7 +6,7 @@ use mplot::prelude::{
     TextStyle, TickFormat, TickLabelRotation,
 };
 
-use crate::array::{fitted_trace_value, KineticFitCoeffs};
+use crate::array::{fitted_trace_value, half_life_minutes, KineticFitCoeffs};
 use crate::csv_io::{column_index, parse_f64, read_csv, slide_channel_column_index};
 use crate::plot::{
     boxplot_tick_label, boxplot_x_axis_label, companion_plot_path, figure_builder_joint,
@@ -22,12 +22,22 @@ use crate::timeseries::{
 
 // Display labels: Müller et al. 2024 basic model (no maturation).
 // CSV column ids match field names (no alternate aliases).
-const PLOTTED_PARAMETERS: [(&str, &str); 5] = [
-    ("baseline_intensity", "baseline intensity"),
-    ("protein_lifetime", "protein lifetime"),
-    ("mrna_lifetime", "mRNA lifetime"),
-    ("onset_time", "onset time"),
-    ("expression_rate", "expression rate"),
+// Time-valued kinetics are stored in minutes; PNG axes convert to hours.
+const MINUTES_PER_HOUR: f64 = 60.0;
+const ONSET_TIME_AXIS_LABEL: &str = "onset time t0 (h)";
+const EXPRESSION_RATE_AXIS_LABEL: &str = "expression rate m0 k_TL";
+const MRNA_LIFETIME_AXIS_LABEL: &str = "mRNA lifetime τ_mRNA (h)";
+const PROTEIN_LIFETIME_AXIS_LABEL: &str = "protein lifetime τ_EGFP (h)";
+const BASELINE_INTENSITY_AXIS_LABEL: &str = "baseline intensity";
+const ONSET_SCATTER_PNG: &str = "expression_rate_vs_onset_time.png";
+const LIFETIME_SCATTER_PNG: &str = "expression_rate_vs_mrna_lifetime.png";
+
+const PLOTTED_PARAMETERS: [(&str, &str, bool); 5] = [
+    ("baseline_intensity", BASELINE_INTENSITY_AXIS_LABEL, false),
+    ("protein_lifetime", PROTEIN_LIFETIME_AXIS_LABEL, true),
+    ("mrna_lifetime", MRNA_LIFETIME_AXIS_LABEL, true),
+    ("onset_time", ONSET_TIME_AXIS_LABEL, true),
+    ("expression_rate", EXPRESSION_RATE_AXIS_LABEL, false),
 ];
 
 #[derive(Debug, Clone)]
@@ -37,8 +47,8 @@ struct FitPlotRow {
     roi: i64,
     success: bool,
     baseline_intensity: Option<f64>,
-    protein_decay_rate: Option<f64>,
-    mrna_decay_rate: Option<f64>,
+    protein_degradation_rate: Option<f64>,
+    mrna_degradation_rate: Option<f64>,
     onset_time: Option<f64>,
     expression_amplitude: Option<f64>,
     protein_lifetime: Option<f64>,
@@ -91,26 +101,26 @@ pub fn run_plot_fit(
         )?;
         write_optional_kinetic_joint_scatter(
             &parsed,
-            &dest_dir.join("expression_rate_vs_onset_time.png"),
+            &dest_dir.join(ONSET_SCATTER_PNG),
             &labels,
-            |row| row.onset_time,
+            |row| row.onset_time.map(|minutes| minutes / MINUTES_PER_HOUR),
             |row| row.expression_rate,
-            "onset time (min)",
-            "expression rate",
+            ONSET_TIME_AXIS_LABEL,
+            EXPRESSION_RATE_AXIS_LABEL,
         )?;
         write_optional_kinetic_joint_scatter(
             &parsed,
-            &dest_dir.join("expression_rate_vs_mrna_lifetime.png"),
+            &dest_dir.join(LIFETIME_SCATTER_PNG),
             &labels,
-            |row| row.mrna_lifetime,
+            |row| row.mrna_lifetime.map(|minutes| minutes / MINUTES_PER_HOUR),
             |row| row.expression_rate,
-            "mRNA lifetime",
-            "expression rate",
+            MRNA_LIFETIME_AXIS_LABEL,
+            EXPRESSION_RATE_AXIS_LABEL,
         )?;
     }
     if !all_parsed.is_empty() {
         let results_dir = workspace.join("results");
-        for (parameter, label) in PLOTTED_PARAMETERS {
+        for (parameter, label, as_hours) in PLOTTED_PARAMETERS {
             write_fit_boxplot(
                 &all_parsed,
                 parameter,
@@ -118,6 +128,7 @@ pub fn run_plot_fit(
                 &results_dir.join(format!("{parameter}.png")),
                 &labels,
                 false,
+                as_hours,
             )?;
         }
     }
@@ -151,8 +162,8 @@ fn load_fit_from_headers(
             .unwrap_or(0);
         let roi = parse_f64(&row[roi_index]).ok_or("invalid roi")? as i64;
         let success = row[success_index].trim().eq_ignore_ascii_case("true");
-        let protein_decay_rate = read_opt(row, "protein_decay_rate");
-        let mrna_decay_rate = read_opt(row, "mrna_decay_rate");
+        let protein_degradation_rate = read_opt(row, "protein_degradation_rate");
+        let mrna_degradation_rate = read_opt(row, "mrna_degradation_rate");
         let expression_amplitude = read_opt(row, "expression_amplitude");
         parsed.push(FitPlotRow {
             slide_channel,
@@ -160,16 +171,20 @@ fn load_fit_from_headers(
             roi,
             success,
             baseline_intensity: read_opt(row, "baseline_intensity"),
-            protein_decay_rate,
-            mrna_decay_rate,
+            protein_degradation_rate,
+            mrna_degradation_rate,
             onset_time: read_opt(row, "onset_time"),
             expression_amplitude,
             protein_lifetime: read_opt(row, "protein_lifetime")
-                .or_else(|| protein_decay_rate.map(|rate| 1.0 / rate)),
+                .or_else(|| protein_degradation_rate.map(half_life_minutes)),
             mrna_lifetime: read_opt(row, "mrna_lifetime")
-                .or_else(|| mrna_decay_rate.map(|rate| 1.0 / rate)),
+                .or_else(|| mrna_degradation_rate.map(half_life_minutes)),
             expression_rate: read_opt(row, "expression_rate").or(
-                match (expression_amplitude, mrna_decay_rate, protein_decay_rate) {
+                match (
+                    expression_amplitude,
+                    mrna_degradation_rate,
+                    protein_degradation_rate,
+                ) {
                     (Some(amp), Some(mrna), Some(protein)) => Some(amp * (mrna - protein)),
                     _ => None,
                 },
@@ -200,12 +215,16 @@ fn write_fit_boxplot(
     output_plot: &Path,
     labels: &BTreeMap<u32, String>,
     log_scale: bool,
+    as_hours: bool,
 ) -> Result<(), String> {
     let mut grouped: BTreeMap<u32, Vec<f64>> = BTreeMap::new();
     for row in rows {
-        let Some(value) = parameter_value(row, parameter) else {
+        let Some(mut value) = parameter_value(row, parameter) else {
             continue;
         };
+        if as_hours {
+            value /= MINUTES_PER_HOUR;
+        }
         if log_scale && value <= 0.0 {
             continue;
         }
@@ -618,8 +637,8 @@ impl FitPlotRow {
     fn kinetic_coeffs(&self) -> KineticFitCoeffs {
         KineticFitCoeffs {
             baseline_intensity: self.baseline_intensity.unwrap_or(0.0),
-            protein_decay_rate: self.protein_decay_rate.unwrap_or(0.0),
-            mrna_decay_rate: self.mrna_decay_rate.unwrap_or(0.0),
+            protein_degradation_rate: self.protein_degradation_rate.unwrap_or(0.0),
+            mrna_degradation_rate: self.mrna_degradation_rate.unwrap_or(0.0),
             onset_time: self.onset_time.unwrap_or(0.0),
             expression_amplitude: self.expression_amplitude.unwrap_or(0.0),
         }

@@ -22,6 +22,15 @@ from transfection.core import (
     trace_color_alpha_from_fluor_name,
     workspace_results_dir,
 )
+from transfection.core.kinetics import (
+    BASELINE_INTENSITY_AXIS_LABEL,
+    EXPRESSION_RATE_AXIS_LABEL,
+    MINUTES_PER_HOUR,
+    MRNA_LIFETIME_AXIS_LABEL,
+    ONSET_TIME_AXIS_LABEL,
+    PROTEIN_LIFETIME_AXIS_LABEL,
+    half_life_minutes,
+)
 from transfection.core.sample_pack import (
     concat_sample_tables,
     concat_sample_traces,
@@ -31,20 +40,24 @@ from transfection.core.sample_pack import (
 )
 
 # Display labels match Müller et al. 2024 (basic model, no maturation).
+# Time-valued kinetics (onset, lifetimes) are stored in minutes and converted
+# to hours for PNG axes only.
 PLOTTED_PARAMETERS = (
-    ("baseline_intensity", "baseline intensity"),
-    ("protein_lifetime", "protein lifetime"),
-    ("mrna_lifetime", "mRNA lifetime"),
-    ("onset_time", "onset time"),
-    ("expression_rate", "expression rate"),
+    ("baseline_intensity", BASELINE_INTENSITY_AXIS_LABEL, False),
+    ("protein_lifetime", PROTEIN_LIFETIME_AXIS_LABEL, True),
+    ("mrna_lifetime", MRNA_LIFETIME_AXIS_LABEL, True),
+    ("onset_time", ONSET_TIME_AXIS_LABEL, True),
+    ("expression_rate", EXPRESSION_RATE_AXIS_LABEL, False),
 )
 FIT_TRACE_PARAMETERS = (
     "baseline_intensity",
-    "protein_decay_rate",
-    "mrna_decay_rate",
+    "protein_degradation_rate",
+    "mrna_degradation_rate",
     "onset_time",
     "expression_amplitude",
 )
+ONSET_SCATTER_PNG = "expression_rate_vs_onset_time.png"
+LIFETIME_SCATTER_PNG = "expression_rate_vs_mrna_lifetime.png"
 
 # Log-log joint plots (scatter + attached x/y histograms). Percentiles of the
 # positive bulk, then pad in log10 space so the cloud sits in the frame center.
@@ -107,37 +120,39 @@ def run_plot_fit(
                 shared_ylim=shared_fit_ylim,
             )
         )
-        onset_scatter = dest_dir / "expression_rate_vs_onset_time.png"
+        onset_scatter = dest_dir / ONSET_SCATTER_PNG
         if _write_kinetic_joint_scatter(
             df,
             onset_scatter,
             x_column="onset_time",
             y_column="expression_rate",
-            xlabel="onset time (min)",
-            ylabel="expression rate",
+            xlabel=ONSET_TIME_AXIS_LABEL,
+            ylabel=EXPRESSION_RATE_AXIS_LABEL,
             empty_message="No successful finite positive fits available to plot expression rate vs onset time",
             slide_channel_names=names_for_sample,
             missing_ok=True,
+            x_as_hours=True,
         ):
             written_paths.append(onset_scatter)
-        lifetime_scatter = dest_dir / "expression_rate_vs_mrna_lifetime.png"
+        lifetime_scatter = dest_dir / LIFETIME_SCATTER_PNG
         if _write_kinetic_joint_scatter(
             df,
             lifetime_scatter,
             x_column="mrna_lifetime",
             y_column="expression_rate",
-            xlabel="mRNA lifetime",
-            ylabel="expression rate",
+            xlabel=MRNA_LIFETIME_AXIS_LABEL,
+            ylabel=EXPRESSION_RATE_AXIS_LABEL,
             empty_message="No successful finite positive fits available to plot expression rate vs mRNA lifetime",
             slide_channel_names=names_for_sample,
             missing_ok=True,
+            x_as_hours=True,
         ):
             written_paths.append(lifetime_scatter)
     if loaded_tables:
         combined = pd.concat(loaded_tables, ignore_index=True)
         names_all = {**names, **labels_from_sample_column(combined)}
         results_dir = workspace_results_dir(workspace)
-        for parameter, label in PLOTTED_PARAMETERS:
+        for parameter, label, as_hours in PLOTTED_PARAMETERS:
             output_plot = results_dir / f"{parameter}.png"
             write_fit_boxplot(
                 combined,
@@ -146,6 +161,7 @@ def run_plot_fit(
                 output_plot=output_plot,
                 slide_channel_names=names_all,
                 log_scale=False,
+                as_hours=as_hours,
             )
             written_paths.append(output_plot)
     if not written_paths:
@@ -174,12 +190,12 @@ def load_fit_table(df: pd.DataFrame) -> pd.DataFrame:
     for parameter in FIT_TRACE_PARAMETERS:
         out[parameter] = pd.to_numeric(out[parameter], errors="coerce")
     if "protein_lifetime" not in out.columns:
-        out["protein_lifetime"] = 1.0 / out["protein_decay_rate"]
+        out["protein_lifetime"] = half_life_minutes_series(out["protein_degradation_rate"])
     if "mrna_lifetime" not in out.columns:
-        out["mrna_lifetime"] = 1.0 / out["mrna_decay_rate"]
+        out["mrna_lifetime"] = half_life_minutes_series(out["mrna_degradation_rate"])
     if "expression_rate" not in out.columns:
         out["expression_rate"] = out["expression_amplitude"] * (
-            out["mrna_decay_rate"] - out["protein_decay_rate"]
+            out["mrna_degradation_rate"] - out["protein_degradation_rate"]
         )
     sort_columns = [column for column in ("slide_channel", "pos", "roi") if column in out.columns]
     return out.sort_values(sort_columns).reset_index(drop=True)
@@ -190,7 +206,7 @@ def load_fit_csv(fit_csv: Path) -> pd.DataFrame:
 
 
 def default_output_plot_paths_for_dir(destination_dir: Path) -> dict[str, Path]:
-    return {parameter: destination_dir / f"{parameter}.png" for parameter, _ in PLOTTED_PARAMETERS}
+    return {parameter: destination_dir / f"{parameter}.png" for parameter, _, _ in PLOTTED_PARAMETERS}
 
 
 def default_output_plot_paths(fit_csv: Path, output: Path | None) -> dict[str, Path]:
@@ -205,12 +221,16 @@ def default_trace_plot_path(fit_csv: Path, output: Path | None) -> Path:
 
 def default_scatter_plot_path(fit_csv: Path, output: Path | None) -> Path:
     destination_dir = fit_csv.parent if output is None else output.resolve()
-    return destination_dir / "expression_rate_vs_onset_time.png"
+    return destination_dir / ONSET_SCATTER_PNG
+
+
+def half_life_minutes_series(rates: pd.Series) -> pd.Series:
+    return rates.map(lambda rate: half_life_minutes(float(rate)) if pd.notna(rate) else np.nan)
 
 
 def default_mrna_lifetime_scatter_plot_path(fit_csv: Path, output: Path | None) -> Path:
     destination_dir = fit_csv.parent if output is None else output.resolve()
-    return destination_dir / "expression_rate_vs_mrna_lifetime.png"
+    return destination_dir / LIFETIME_SCATTER_PNG
 
 
 def write_fit_boxplot(
@@ -221,8 +241,11 @@ def write_fit_boxplot(
     output_plot: Path,
     slide_channel_names: dict[int, str],
     log_scale: bool,
+    as_hours: bool = False,
 ) -> None:
     parameter_df = df.dropna(subset=[parameter]).copy()
+    if as_hours:
+        parameter_df[parameter] = parameter_df[parameter] / MINUTES_PER_HOUR
     if log_scale:
         parameter_df = parameter_df.loc[parameter_df[parameter] > 0].copy()
     if parameter_df.empty:
@@ -435,12 +458,15 @@ def _write_kinetic_joint_scatter(
     empty_message: str,
     slide_channel_names: dict[int, str],
     missing_ok: bool = False,
+    x_as_hours: bool = False,
 ) -> bool:
     scatter_df = successful_finite_fit_df(df, x_column, y_column)
     x, y = positive_finite_xy(
         scatter_df[x_column].to_numpy(dtype=float) if not scatter_df.empty else np.array([]),
         scatter_df[y_column].to_numpy(dtype=float) if not scatter_df.empty else np.array([]),
     )
+    if x_as_hours:
+        x = x / MINUTES_PER_HOUR
     if x.size == 0:
         if missing_ok:
             return False
@@ -471,10 +497,11 @@ def write_expression_rate_vs_onset_scatter(
         output_plot,
         x_column="onset_time",
         y_column="expression_rate",
-        xlabel="onset time (min)",
-        ylabel="expression rate",
+        xlabel=ONSET_TIME_AXIS_LABEL,
+        ylabel=EXPRESSION_RATE_AXIS_LABEL,
         empty_message="No successful finite positive fits available to plot expression rate vs onset time",
         slide_channel_names=slide_channel_names,
+        x_as_hours=True,
     )
 
 
@@ -491,22 +518,23 @@ def write_expression_rate_vs_mrna_lifetime_scatter(
         output_plot,
         x_column="mrna_lifetime",
         y_column="expression_rate",
-        xlabel="mRNA lifetime",
-        ylabel="expression rate",
+        xlabel=MRNA_LIFETIME_AXIS_LABEL,
+        ylabel=EXPRESSION_RATE_AXIS_LABEL,
         empty_message="No successful finite positive fits available to plot expression rate vs mRNA lifetime",
         slide_channel_names=slide_channel_names,
+        x_as_hours=True,
     )
 
 
 def fitted_trace_values(times_minutes: np.ndarray, fit_row: pd.Series) -> np.ndarray:
     baseline_intensity = float(fit_row["baseline_intensity"])
-    protein_decay_rate = float(fit_row["protein_decay_rate"])
-    mrna_decay_rate = float(fit_row["mrna_decay_rate"])
+    protein_degradation_rate = float(fit_row["protein_degradation_rate"])
+    mrna_degradation_rate = float(fit_row["mrna_degradation_rate"])
     onset_time = float(fit_row["onset_time"])
     expression_amplitude = float(fit_row["expression_amplitude"])
     dt = np.maximum(times_minutes - onset_time, 0.0)
     predicted = baseline_intensity + expression_amplitude * (
-        np.exp(-protein_decay_rate * dt) - np.exp(-mrna_decay_rate * dt)
+        np.exp(-protein_degradation_rate * dt) - np.exp(-mrna_degradation_rate * dt)
     )
     predicted[times_minutes < onset_time] = baseline_intensity
     return predicted

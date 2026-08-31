@@ -36,7 +36,24 @@ Studio wire id is **`transfection`** (root `type`). Prefer that when writing wor
 
 Fits use the **basic translation–degradation model only** (no protein maturation).
 Code/CSV/UI names are locked in `~/workspace/lisca/CONTEXT.md`. Use **expression
-rate** for \(m_0 k_{TL}\) — never “transfection efficiency”. No aliases.
+rate** for \(m_0 k_{TL}\) — never “transfection efficiency”. Prefer **onset time**
+over “transfection onset”. Never `translation_onset`. No aliases.
+
+Stored kinetic columns (minutes; do not convert on disk):
+
+| Code / CSV | Meaning |
+| --- | --- |
+| `onset_time` | \(t_0\), minutes after acquisition start |
+| `expression_rate` | \(m_0 k_{TL}\) |
+| `protein_degradation_rate` | \(\beta\), per minute |
+| `mrna_degradation_rate` | \(\delta\), per minute |
+| `protein_lifetime` | \(\tau_\mathrm{EGFP} = \ln(2)/\beta\) (half-life, minutes) |
+| `mrna_lifetime` | \(\tau_\mathrm{mRNA} = \ln(2)/\delta\) (half-life, minutes) |
+| `expression_amplitude` | \(m_0 k_{TL}/(\delta-\beta)\) (internal coeff) |
+| `baseline_intensity` | additive baseline |
+| `auc` | trace-integrated transient protein output |
+
+PNG axes convert onset/lifetimes minutes → hours for display only.
 
 ## CLI
 

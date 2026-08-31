@@ -237,8 +237,8 @@ def plot_correlation_panel(ax, fit_df: pd.DataFrame) -> None:
     y_rate = ok["expression_rate"].astype(float).to_numpy(dtype=float)
 
     ax.scatter(x_hours, y_rate, s=18, alpha=0.55)
-    ax.set_xlabel("mRNA lifetime (h)", fontsize=AXIS_LABEL_FONT)
-    ax.set_ylabel("expression rate", fontsize=AXIS_LABEL_FONT)
+    ax.set_xlabel("mRNA lifetime τ_mRNA (h)", fontsize=AXIS_LABEL_FONT)
+    ax.set_ylabel("expression rate m0 k_TL", fontsize=AXIS_LABEL_FONT)
     style_plot_axes(ax)
 
 

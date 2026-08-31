@@ -14,7 +14,7 @@ On a tiny synthetic workspace (`roi/` 4×4×4 T, 2 channels, one ROI, sample
 | AUC | `analysis/Pos1/auc.csv` | `1e-6` |
 | Kinetic fit | `analysis/Pos1/fit.csv` | `2e-2` vs Python CLI (grid-search / `lstsq` backends) |
 | Results tables | `results/condA/{traces,auc,fit}.xlsx` | same numeric columns as the analysis CSVs (xlsx values, not pixels) |
-| Plot-fit scatter | `results/condA/expression_rate_vs_onset_time.png`, `expression_rate_vs_mrna_lifetime.png` | existence only (both CLIs; no pixel diff) |
+| Plot-fit scatter | `results/condA/expression_rate_vs_onset_time.png`, `results/condA/expression_rate_vs_mrna_lifetime.png` | existence only (both CLIs; no pixel diff) |
 
 Plots are not pixel-compared. Crop / ND2 / CZI are out of scope.
 Smart-exclusion and SlimSAM stay in lisca. Optional ONNX pattern U-Net
@@ -38,7 +38,8 @@ Both CLIs should write the same PNG basenames. Per-sample packs under
 - `traces_fit.png`, `traces_fit_shared_y.png`
 - `expression_rate_vs_onset_time.png`, `expression_rate_vs_mrna_lifetime.png`
   (log-log joint plots with x/y histograms; Pearson r and n; successful
-  finite *positive* fits only; no shared-y)
+  finite *positive* fits only; no shared-y). Onset/lifetime axes are hours
+  (stored columns stay minutes).
 
 Shared-y companions use the same traces as the autoscaled PNG with ylim
 computed across all samples.
@@ -54,7 +55,11 @@ CSV / table contract:
 - Analysis traces: `roi,t,area,background,sum,corrected` (no `pos` /
   `slide_channel`; those are joined later from the path + `assay.json`).
 - Analysis AUC / fit: `roi,…` (`channel` only when that Pos has multiple
-  signal CSVs). `pos` is the folder name.
+  signal CSVs). `pos` is the folder name. Fit columns:
+  `baseline_intensity`, `protein_degradation_rate`, `protein_lifetime`,
+  `mrna_degradation_rate`, `mrna_lifetime`, `onset_time`,
+  `expression_amplitude`, `expression_rate`, `success`. Lifetimes are
+  half-lives \(\ln(2)/\mathrm{rate}\) in minutes. No `*_decay_rate` aliases.
 - Results XLSX: concat by named `samples[]`, with `slide_channel`, `sample`,
   and `pos` prefixed.
 
