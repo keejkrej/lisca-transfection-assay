@@ -160,6 +160,34 @@ def test_build_lookup_rejects_ambiguous_position_signal() -> None:
         build_position_signal_slide_channel_lookup(mapping)
 
 
+def test_auc_infers_pos_from_timeseries_path(tmp_path: Path) -> None:
+    csv_path = tmp_path / "Pos3" / "ch1.csv"
+    csv_path.parent.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "roi": [0, 0],
+            "t": [0, 1],
+            "corrected": [2.0, 4.0],
+        }
+    ).to_csv(csv_path, index=False)
+
+    mapping = validate_slide_mapping(
+        {
+            4: SlideChannelMapping(
+                positions=[3],
+                signal_channels=[1],
+                mask_channel=0,
+                sample_name="condA",
+            ),
+        }
+    )
+    result = compute_auc_table([csv_path], interval=2.0, mapping=mapping)
+    assert result.loc[0, "slide_channel"] == 4
+    assert result.loc[0, "pos"] == 3
+    assert result.loc[0, "roi"] == 0
+    assert result.loc[0, "auc"] == 6.0
+
+
 def test_auc_resolves_slide_channel_from_path_and_mapping(tmp_path: Path) -> None:
     csv_path = tmp_path / "Pos3" / "ch1.csv"
     csv_path.parent.mkdir(parents=True)
