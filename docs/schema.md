@@ -1,7 +1,8 @@
 # Transfection on-disk table schema
 
-Canonical column lists for this assay. Do not invent extras. Python and Rust
-must write these headers in this order.
+Canonical column lists for this assay's **`analysis/`** and **`results/`**
+tables. Do not invent extras. Python and Rust must write these headers in
+this order.
 
 `analysis/` is **CSV only**. `results/` tables are **XLSX only**. No csv under
 `results/`. No xlsx under `analysis/`.
@@ -9,9 +10,9 @@ must write these headers in this order.
 Times (`t`, `onset_time`) and lifetimes are stored in **minutes**. Lifetimes
 are half-lives \(\ln(2)/\mathrm{rate}\). Do not convert on disk.
 
-Site boxes are owned by lisca: `bbox/Pos{n}.csv` is `roi, x, y, w, h`. No
-`crop` alias. Old crop-header files are unsupported. This package does not
-write bbox tables.
+`bbox/` and `roi/` are owned by [keejkrej/lisca](https://github.com/keejkrej/lisca).
+See lisca [`docs/analysis/schema.md`](https://github.com/keejkrej/lisca/blob/main/docs/analysis/schema.md).
+Do not duplicate that spec here.
 
 ## `analysis/Pos{n}/`
 

@@ -123,7 +123,7 @@ plot-timeseries → plot-auc → plot-fit
 | Path | Role |
 | --- | --- |
 | `assay.json` | **Required** experiment config (schema below) |
-| `bbox/PosN.csv` | Site boxes from Aligner (owned by lisca; input to pyama / `lisca-crop`). Columns live in lisca, not here. |
+| `bbox/PosN.csv` | Site boxes from Aligner (owned by lisca; input to pyama / `lisca-crop`). Spec: lisca `docs/analysis/schema.md`. |
 | `roi/PosN/` | Cropped ROI stacks + slim `index.json` (from pyama / `lisca-crop` / Studio). Always `axisOrder: "TCZYX"`; keep `zCount` (`1` if no z-stack). Stack shape is derived as `[timeCount, channelCount, zCount, bbox.h, bbox.w]`. Optional `timeIndices` lists source acquisition frame indices per T plane; timeseries CSV `t` uses these, then `t * interval` is real minutes. |
 | `mask/PosN/` | Segmentation masks (written by `segment`) |
 | `analysis/` | Pipeline intermediates, **CSV only**. See **`docs/schema.md`**. Analysis stages do not require `samples[].name`. |
