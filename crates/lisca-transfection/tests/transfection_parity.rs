@@ -514,6 +514,7 @@ const DROPPED_TABLE_COLUMNS: &[&str] = &[
     "mrna_degradation_rate",
     "expression_amplitude",
 ];
+const FIT_SCATTER_PNG: &str = "expression_rate_vs_onset_time.png";
 const FIT_LIFETIME_SCATTER_PNG: &str = "expression_rate_vs_mrna_lifetime.png";
 const SAMPLE_DIRNAME: &str = "condA";
 
