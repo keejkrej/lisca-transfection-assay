@@ -104,8 +104,10 @@ results/
     area.png area_shared_y.png
     traces_fit.png traces_fit_shared_y.png
     expression_rate_vs_onset_time.png
+    expression_rate_vs_mrna_lifetime.png
 ```
 
 There is no `timeseries/` folder, no combined results tables, and no csv under
 `results/`. Plot stages never recompute analysis. Shared-y ylim is pooled
-across samples. Scatter uses `onset_time` + `expression_rate`.
+across samples. Joint scatters use `onset_time` / `mrna_lifetime` vs
+`expression_rate` (log-log).

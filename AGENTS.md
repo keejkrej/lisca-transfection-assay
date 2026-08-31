@@ -69,7 +69,7 @@ Defaults:
 - `--interval` / `--max-onset-minutes` → from `assay.json` when omitted (`interval`, `analysis.maxOnsetMinutes`)
 - Segment skip / full-ROI timeseries → `analysis.skipSegment` (replaces CLI `--full-frame`)
 - Parallel stages (segment / timeseries / auc / fit) always use `os.cpu_count()` workers; timeseries writes each CSV as soon as that position finishes
-- Analysis stages (`timeseries` / `auc` / `fit`) write `analysis/PosN/*.csv` from `roi/` + `assay.json` interval/channels/maxOnset. They do **not** require `samples[].name`. Plot stages require named `samples[]` and write `results/<sample>/`.
+- Analysis stages (`timeseries` / `auc` / `fit`) write `analysis/PosN/*.csv` from `roi/` + `assay.json` interval/channels/maxOnset. They do **not** require `samples[].name`. Plot *services* (`run_plot_*`) require named `samples[]` and write PNG only. Table packs (`traces.xlsx` / `auc.xlsx` / `fit.xlsx`) come from `publish_sample_traces_xlsx` / `publish_sample_tables_xlsx`; CLI `plot-*` and pipeline call those then plot.
 
 ### ROI crop (not in this package)
 
@@ -107,7 +107,7 @@ plot-timeseries → plot-auc → plot-fit
 | `roi/PosN/` | Cropped ROI stacks + slim `index.json` (from pyama / `lisca-crop` / Studio). Always `axisOrder: "TCZYX"`; keep `zCount` (`1` if no z-stack). Stack shape is derived as `[timeCount, channelCount, zCount, bbox.h, bbox.w]`. Optional `timeIndices` lists source acquisition frame indices per T plane; timeseries CSV `t` uses these, then `t * interval` is real minutes. |
 | `mask/PosN/` | Segmentation masks (written by `segment`) |
 | `analysis/` | Pipeline intermediates, **CSV only**. `Pos{N}/ch{C}.csv` traces (`roi,t,area,background,sum,corrected`); `Pos{N}/auc.csv`; `Pos{N}/fit.csv`. No xlsx. Analysis stages do not require `samples[].name`. |
-| `results/<sample>/` | User-facing packs (filesystem-safe `samples[].name`; prefix `slideChannel` if names collide). XLSX: `traces.xlsx` / `auc.xlsx` / `fit.xlsx`. PNGs: `traces.png`, `traces_shared_y.png`, `traces_summary.png`, `traces_summary_shared_y.png`, `area.png`, `area_shared_y.png`, `traces_fit.png`, `traces_fit_shared_y.png`, `expression_rate_vs_onset_time.png` (no shared-y). Shared-y companions use one ylim across all samples. No `*_log` or `area_summary`. Missing `samples[]` fails here, not during timeseries. |
+| `results/<sample>/` | User-facing packs (filesystem-safe `samples[].name`; prefix `slideChannel` if names collide). XLSX: `traces.xlsx` / `auc.xlsx` / `fit.xlsx`. PNGs: `traces.png`, `traces_shared_y.png`, `traces_summary.png`, `traces_summary_shared_y.png`, `area.png`, `area_shared_y.png`, `traces_fit.png`, `traces_fit_shared_y.png`, `expression_rate_vs_onset_time.png`, `expression_rate_vs_mrna_lifetime.png` (no shared-y). Shared-y companions use one ylim across all samples. No `*_log` or `area_summary`. Missing `samples[]` fails here, not during timeseries. |
 | `results/*.png` | Cross-sample boxplots (samples on x), written once: `auc.png`, `expression_rate.png`, `onset_time.png`, `baseline_intensity.png`, `protein_lifetime.png`, `mrna_lifetime.png`. |
 
 Frozen on-disk tree (csv under `analysis/` only; xlsx + png under `results/`):
@@ -124,6 +124,7 @@ results/
     area.png area_shared_y.png
     traces_fit.png traces_fit_shared_y.png
     expression_rate_vs_onset_time.png
+    expression_rate_vs_mrna_lifetime.png
 ```
 
 Hard no: `timeseries/` folder, combined results tables, csv under `results/`, `*_log` plots, `area_summary.png`, subplot grids.

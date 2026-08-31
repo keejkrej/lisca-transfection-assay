@@ -2,20 +2,19 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use mplot::prelude::{
-    AxesStyle, BoxplotStyle, Color, GridPos, LineStyle, Marker, Scale, TextStyle, TickFormat,
-    TickLabelRotation,
+    AxesStyle, BoxplotStyle, Color, FillBetweenStyle, GridPos, GridSpec, LineStyle, Marker, Scale,
+    TextStyle, TickFormat, TickLabelRotation,
 };
 
 use crate::array::{fitted_trace_value, KineticFitCoeffs};
 use crate::csv_io::{column_index, parse_f64, read_csv, slide_channel_column_index};
 use crate::plot::{
-    boxplot_tick_label, boxplot_x_axis_label, companion_plot_path, figure_builder_single,
-    percentile_ylim, quartile_axis_upper, sample_subplot_title, sample_trace_naming_haystack,
-    save_figure, slide_channel_labels, trace_color_alpha, trace_line_style, SAVE_PAD_SINGLE_INCHES,
+    boxplot_tick_label, boxplot_x_axis_label, companion_plot_path, figure_builder_joint,
+    figure_builder_single, log_joint_limits, percentile_ylim, quartile_axis_upper,
+    sample_subplot_title, sample_trace_naming_haystack, save_figure, slide_channel_labels,
+    trace_color_alpha, trace_line_style, JOINT_HIST_BINS, SAVE_PAD_SINGLE_INCHES,
 };
-use crate::sample_pack::{
-    concat_kind_rows, publish_sample_tables_xlsx, sample_pack_dir, sample_pack_dirnames,
-};
+use crate::sample_pack::{concat_kind_rows, sample_pack_dir, sample_pack_dirnames};
 use crate::slide::{require_named_samples, SlideMapping};
 use crate::timeseries::{
     discover_timeseries_csvs, group_timeseries_rows, parse_timeseries_path, resolve_slide_channel,
@@ -55,7 +54,6 @@ pub fn run_plot_fit(
 ) -> Result<(), String> {
     let _ = columns;
     let named = require_named_samples(mapping)?;
-    publish_sample_tables_xlsx(workspace, &named, "fit")?;
     let dirnames = sample_pack_dirnames(&named)?;
     let labels = slide_channel_labels(&named);
     let (headers, grouped) = concat_kind_rows(workspace, &named, "fit")?;
@@ -91,10 +89,23 @@ pub fn run_plot_fit(
             &named,
             shared_fit_ylim,
         )?;
-        write_expression_rate_vs_onset_scatter(
+        write_optional_kinetic_joint_scatter(
             &parsed,
             &dest_dir.join("expression_rate_vs_onset_time.png"),
             &labels,
+            |row| row.onset_time,
+            |row| row.expression_rate,
+            "onset time (min)",
+            "expression rate",
+        )?;
+        write_optional_kinetic_joint_scatter(
+            &parsed,
+            &dest_dir.join("expression_rate_vs_mrna_lifetime.png"),
+            &labels,
+            |row| row.mrna_lifetime,
+            |row| row.expression_rate,
+            "mRNA lifetime",
+            "expression rate",
         )?;
     }
     if !all_parsed.is_empty() {
@@ -241,13 +252,79 @@ fn write_fit_boxplot(
     save_figure(&figure, output_plot, SAVE_PAD_SINGLE_INCHES)
 }
 
-fn successful_finite_xy(row: &FitPlotRow) -> Option<(f64, f64)> {
+fn successful_finite_xy(row: &FitPlotRow, x: Option<f64>, y: Option<f64>) -> Option<(f64, f64)> {
     if !row.success {
         return None;
     }
-    let onset = row.onset_time.filter(|value| value.is_finite())?;
-    let rate = row.expression_rate.filter(|value| value.is_finite())?;
-    Some((onset, rate))
+    let x = x.filter(|value| value.is_finite())?;
+    let y = y.filter(|value| value.is_finite())?;
+    Some((x, y))
+}
+
+fn positive_xy(x: f64, y: f64) -> Option<(f64, f64)> {
+    (x > 0.0 && y > 0.0).then_some((x, y))
+}
+
+fn collect_positive_scatter_xy(
+    rows: &[FitPlotRow],
+    x_of: impl Fn(&FitPlotRow) -> Option<f64>,
+    y_of: impl Fn(&FitPlotRow) -> Option<f64>,
+) -> (Vec<f64>, Vec<f64>, u32) {
+    let mut xs = Vec::new();
+    let mut ys = Vec::new();
+    let mut slide_channel = rows.first().map(|row| row.slide_channel).unwrap_or(0);
+    for row in rows {
+        let Some((x, y)) = successful_finite_xy(row, x_of(row), y_of(row)) else {
+            continue;
+        };
+        let Some((x, y)) = positive_xy(x, y) else {
+            continue;
+        };
+        slide_channel = row.slide_channel;
+        xs.push(x);
+        ys.push(y);
+    }
+    (xs, ys, slide_channel)
+}
+
+fn logspace_edges(low: f64, high: f64, n_bins: usize) -> Vec<f64> {
+    let log_lo = low.log10();
+    let log_hi = high.log10();
+    (0..=n_bins)
+        .map(|i| 10.0_f64.powf(log_lo + (log_hi - log_lo) * (i as f64) / n_bins as f64))
+        .collect()
+}
+
+fn histogram_counts(values: &[f64], edges: &[f64]) -> Vec<f64> {
+    let n_bins = edges.len().saturating_sub(1);
+    let mut counts = vec![0.0; n_bins];
+    if n_bins == 0 {
+        return counts;
+    }
+    let first = edges[0];
+    let last = edges[n_bins];
+    for &value in values {
+        if value < first || value > last {
+            continue;
+        }
+        let mut index = n_bins - 1;
+        for i in 0..n_bins {
+            if value < edges[i + 1] {
+                index = i;
+                break;
+            }
+        }
+        counts[index] += 1.0;
+    }
+    counts
+}
+
+fn log_lerp(low: f64, high: f64, t: f64) -> f64 {
+    10.0_f64.powf(low.log10() + t * (high.log10() - low.log10()))
+}
+
+fn hist_fill_style(color: Color) -> FillBetweenStyle {
+    FillBetweenStyle::new().color(color).alpha(0.75)
 }
 
 fn pearson_r(x: &[f64], y: &[f64]) -> Option<f64> {
@@ -290,55 +367,130 @@ fn scatter_marker_style(color: Color) -> LineStyle {
         .alpha(0.55)
 }
 
-fn write_expression_rate_vs_onset_scatter(
+fn write_optional_kinetic_joint_scatter(
     rows: &[FitPlotRow],
     output_plot: &Path,
     labels: &BTreeMap<u32, String>,
+    x_of: impl Fn(&FitPlotRow) -> Option<f64>,
+    y_of: impl Fn(&FitPlotRow) -> Option<f64>,
+    xlabel: &str,
+    ylabel: &str,
 ) -> Result<(), String> {
-    let mut xs = Vec::new();
-    let mut ys = Vec::new();
-    let mut slide_channel = rows.first().map(|row| row.slide_channel).unwrap_or(0);
-    for row in rows {
-        let Some((onset, rate)) = successful_finite_xy(row) else {
-            continue;
-        };
-        slide_channel = row.slide_channel;
-        xs.push(onset);
-        ys.push(rate);
-    }
-    if xs.is_empty() {
-        return Err(
-            "No successful finite fits available to plot expression rate vs onset time".to_string(),
-        );
-    }
+    write_kinetic_joint_scatter(rows, output_plot, labels, x_of, y_of, xlabel, ylabel).map(|_| ())
+}
 
+#[allow(clippy::too_many_arguments)]
+fn write_kinetic_joint_scatter(
+    rows: &[FitPlotRow],
+    output_plot: &Path,
+    labels: &BTreeMap<u32, String>,
+    x_of: impl Fn(&FitPlotRow) -> Option<f64>,
+    y_of: impl Fn(&FitPlotRow) -> Option<f64>,
+    xlabel: &str,
+    ylabel: &str,
+) -> Result<bool, String> {
+    let (xs, ys, slide_channel) = collect_positive_scatter_xy(rows, x_of, y_of);
+    if xs.is_empty() {
+        return Ok(false);
+    }
     let name = labels
         .get(&slide_channel)
         .cloned()
         .unwrap_or_else(|| format!("slide channel {slide_channel}"));
-    let (x_low, x_high) = percentile_ylim(&xs);
-    let (y_low, y_high) = percentile_ylim(&ys);
-    let annotation = pearson_annotation(pearson_r(&xs, &ys), xs.len());
-    let text_x = x_low + 0.05 * (x_high - x_low);
-    let text_y = y_high - 0.08 * (y_high - y_low);
     let (color_name, _alpha) = trace_color_alpha(&name);
     let color = Color::hex(color_name);
-    let title = name;
+    write_log_joint_scatter(xs, ys, output_plot, xlabel, ylabel, name, color)?;
+    Ok(true)
+}
 
-    let figure = figure_builder_single()
-        .panel(GridPos::new(1, 1, 1), move |p| {
-            for (x, y) in xs.iter().zip(ys.iter()) {
-                // mplot has no scatter primitive; one-point marked lines skip the stroke.
-                p.line(&[*x], &[*y], scatter_marker_style(color));
+fn write_log_joint_scatter(
+    xs: Vec<f64>,
+    ys: Vec<f64>,
+    output_plot: &Path,
+    xlabel: &str,
+    ylabel: &str,
+    title: String,
+    color: Color,
+) -> Result<(), String> {
+    let (x_low, x_high) = log_joint_limits(&xs);
+    let (y_low, y_high) = log_joint_limits(&ys);
+    let annotation = pearson_annotation(pearson_r(&xs, &ys), xs.len());
+    let text_x = log_lerp(x_low, x_high, 0.05);
+    let text_y = log_lerp(y_low, y_high, 0.92);
+    let x_edges = logspace_edges(x_low, x_high, JOINT_HIST_BINS);
+    let y_edges = logspace_edges(y_low, y_high, JOINT_HIST_BINS);
+    let x_counts = histogram_counts(&xs, &x_edges);
+    let y_counts = histogram_counts(&ys, &y_edges);
+    let x_count_max = x_counts.iter().copied().fold(1.0_f64, f64::max) * 1.05;
+    let y_count_max = y_counts.iter().copied().fold(1.0_f64, f64::max) * 1.05;
+    let xlabel = xlabel.to_string();
+    let ylabel = ylabel.to_string();
+    let gs = GridSpec::new(5, 5);
+
+    let figure = figure_builder_joint()
+        .panel(gs.span(0, 0, 1, 4), {
+            let x_edges = x_edges.clone();
+            let x_counts = x_counts.clone();
+            let title = title.clone();
+            move |p| {
+                for (index, count) in x_counts.iter().enumerate() {
+                    if *count <= 0.0 {
+                        continue;
+                    }
+                    let x = [x_edges[index], x_edges[index + 1]];
+                    let y0 = [0.0, 0.0];
+                    let y1 = [*count, *count];
+                    p.fill_between(&x, &y0, &y1, hist_fill_style(color));
+                }
+                p.axes(
+                    AxesStyle::new()
+                        .title(title)
+                        .x_scale(Scale::Log)
+                        .x_range(x_low, x_high)
+                        .y_range(0.0, x_count_max)
+                        .x_tick_labels(&[x_low], &[""]),
+                );
             }
-            p.text(text_x, text_y, annotation, TextStyle::new().fontsize(17.0));
+        })
+        .panel(gs.span(1, 0, 4, 4), {
+            let xs = xs.clone();
+            let ys = ys.clone();
+            let xlabel = xlabel.clone();
+            let ylabel = ylabel.clone();
+            let annotation = annotation.clone();
+            move |p| {
+                for (x, y) in xs.iter().zip(ys.iter()) {
+                    // mplot has no scatter primitive; one-point marked lines skip the stroke.
+                    p.line(&[*x], &[*y], scatter_marker_style(color));
+                }
+                p.text(text_x, text_y, annotation, TextStyle::new().fontsize(17.0));
+                p.axes(
+                    AxesStyle::new()
+                        .x_label(xlabel)
+                        .y_label(ylabel)
+                        .x_scale(Scale::Log)
+                        .y_scale(Scale::Log)
+                        .x_range(x_low, x_high)
+                        .y_range(y_low, y_high),
+                );
+            }
+        })
+        .panel(gs.span(1, 4, 4, 1), move |p| {
+            for (index, count) in y_counts.iter().enumerate() {
+                if *count <= 0.0 {
+                    continue;
+                }
+                let x = [0.0, *count];
+                let y0 = [y_edges[index], y_edges[index]];
+                let y1 = [y_edges[index + 1], y_edges[index + 1]];
+                p.fill_between(&x, &y0, &y1, hist_fill_style(color));
+            }
             p.axes(
                 AxesStyle::new()
-                    .title(title)
-                    .x_label("onset time (min)")
-                    .y_label("expression rate")
-                    .x_range(x_low, x_high)
-                    .y_range(y_low, y_high),
+                    .y_scale(Scale::Log)
+                    .y_range(y_low, y_high)
+                    .x_range(0.0, y_count_max)
+                    .y_tick_labels(&[y_low], &[""]),
             );
         })
         .build()

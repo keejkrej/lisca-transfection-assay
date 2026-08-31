@@ -21,8 +21,9 @@ use lisca_transfection::assay::AssayJsonFile;
 use lisca_transfection::slide::{load_mapping_for_workspace, resolve_assay_path};
 use lisca_transfection::{
     default_fit_jobs, default_jobs, default_timeseries_jobs, interval_minutes, max_onset_minutes,
-    run_auc, run_fit, run_plot_auc, run_plot_fit, run_plot_timeseries, run_segment,
-    run_sync_with_mode, run_timeseries_with_mode, skip_segment, SegmentBackend, SegmentOptions,
+    publish_sample_tables_xlsx, publish_sample_traces_xlsx, require_named_samples, run_auc,
+    run_fit, run_plot_auc, run_plot_fit, run_plot_timeseries, run_segment, run_sync_with_mode,
+    run_timeseries_with_mode, skip_segment, SegmentBackend, SegmentOptions,
 };
 
 fn main() {
@@ -74,7 +75,8 @@ Commands (same stage names as `transfection`):
                     area.png / area_shared_y.png
   plot-auc          Read analysis/ auc.csv; write results/<sample>/auc.xlsx + results/auc.png
   plot-fit          Read analysis/ fit.csv; write results/<sample>/fit.xlsx, traces_fit.png,
-                    traces_fit_shared_y.png, expression_rate_vs_onset_time.png, and
+                    traces_fit_shared_y.png, expression_rate_vs_onset_time.png,
+                    expression_rate_vs_mrna_lifetime.png, and
                     cross-sample boxplots at results/
   pipeline          Analysis stages then plot stages (plot requires samples[].name)
                     (aliases: analyze, all)
@@ -208,6 +210,8 @@ fn cmd_plot_timeseries(args: &[String]) -> Result<(), String> {
             .unwrap_or_else(|| "auto".to_string())
     );
     timed("plot-timeseries", || {
+        let named = require_named_samples(&mapping)?;
+        publish_sample_traces_xlsx(&workspace, &named)?;
         run_plot_timeseries(&workspace, &mapping, interval, columns)
     })
 }
@@ -217,7 +221,11 @@ fn cmd_plot_auc(args: &[String]) -> Result<(), String> {
     let assay = flag_path(args, "--assay");
     let mapping = load_mapping_for_workspace(&workspace, assay.as_deref())?;
     eprintln!("plot-auc workspace={}", workspace.display());
-    timed("plot-auc", || run_plot_auc(&workspace, &mapping))
+    timed("plot-auc", || {
+        let named = require_named_samples(&mapping)?;
+        publish_sample_tables_xlsx(&workspace, &named, "auc")?;
+        run_plot_auc(&workspace, &mapping)
+    })
 }
 
 fn cmd_plot_fit(args: &[String]) -> Result<(), String> {
@@ -237,6 +245,8 @@ fn cmd_plot_fit(args: &[String]) -> Result<(), String> {
             .unwrap_or_else(|| "auto".to_string())
     );
     timed("plot-fit", || {
+        let named = require_named_samples(&mapping)?;
+        publish_sample_tables_xlsx(&workspace, &named, "fit")?;
         run_plot_fit(&workspace, &mapping, interval, columns)
     })
 }

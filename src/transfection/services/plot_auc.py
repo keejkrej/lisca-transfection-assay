@@ -20,7 +20,6 @@ from transfection.core import (
 )
 from transfection.core.sample_pack import (
     concat_sample_tables,
-    publish_sample_tables_xlsx,
 )
 from transfection.services.plot_timeseries import percentile_ylim
 
@@ -107,8 +106,7 @@ def run_plot_auc(*, auc_csv: Path, output: Path | None = None) -> tuple[Path, ..
     mapping = require_named_samples(config)
     tables = concat_sample_tables(workspace, mapping, "auc")
     names = {sc: entry.sample_name for sc, entry in mapping.items()}
-    xlsx_paths = publish_sample_tables_xlsx(workspace, mapping, "auc")
-    written: list[Path] = list(xlsx_paths)
+    written: list[Path] = []
     frames = [load_auc_frame(table, source=auc_csv) for table in tables.values()]
     if frames:
         combined = pd.concat(frames, ignore_index=True)

@@ -6,14 +6,15 @@ mod util;
 // Public API surface for assay plot modules (and external crates).
 #[allow(unused_imports)]
 pub use mplot_config::{
-    figure_builder_single, save_figure, trace_line_style, FIGURE_DPI, FIGURE_SINGLE_HEIGHT_IN,
-    FIGURE_SINGLE_WIDTH_IN, SAVE_PAD_SINGLE_INCHES,
+    figure_builder_joint, figure_builder_single, save_figure, trace_line_style, FIGURE_DPI,
+    FIGURE_SINGLE_HEIGHT_IN, FIGURE_SINGLE_WIDTH_IN, SAVE_PAD_SINGLE_INCHES,
 };
 #[allow(unused_imports)] // re-exported public API for assay modules / bins
 pub use util::{
-    boxplot_tick_label, boxplot_x_axis_label, expand_degenerate_ylim, percentile_ylim,
-    percentile_ylim_with, quartile_axis_upper, sample_subplot_title, sample_trace_naming_haystack,
-    slide_channel_labels, trace_color_alpha, DEFAULT_PLOT_COLUMNS,
+    boxplot_tick_label, boxplot_x_axis_label, expand_degenerate_ylim, log_joint_limits,
+    percentile_ylim, percentile_ylim_with, quartile_axis_upper, sample_subplot_title,
+    sample_trace_naming_haystack, slide_channel_labels, trace_color_alpha, DEFAULT_PLOT_COLUMNS,
+    JOINT_HIST_BINS,
 };
 
 use std::collections::BTreeMap;
@@ -46,14 +47,9 @@ pub(crate) fn write_metric_plots(
         .iter()
         .map(|panel| percentile_ylim(&panel.y_values))
         .collect();
-    write_sample_panel(
-        panels,
-        output_plot,
-        y_label,
-        interval,
-        mapping,
-        |index| panel_ylims.get(index).copied().unwrap_or((0.0, 1.0)),
-    )?;
+    write_sample_panel(panels, output_plot, y_label, interval, mapping, |index| {
+        panel_ylims.get(index).copied().unwrap_or((0.0, 1.0))
+    })?;
     if let Some(shared) = shared_ylim {
         write_sample_panel(
             panels,
