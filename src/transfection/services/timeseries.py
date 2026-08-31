@@ -146,7 +146,17 @@ def run_slide_timeseries(
     on_csv_written: CsvWrittenCallback | None = None,
 ) -> SlideTimeseriesRunResult:
     workspace = workspace.resolve()
-    if mask_channel is None or signal_channels is None:
+    if mapping:
+        if mask_channel is None:
+            mask_channel = next(iter(mapping.values())).mask_channel
+        if signal_channels is None:
+            signals: list[int] = []
+            for entry in mapping.values():
+                for channel in entry.signal_channels:
+                    if channel not in signals:
+                        signals.append(channel)
+            signal_channels = signals
+    elif mask_channel is None or signal_channels is None:
         config = load_assay_for_workspace(workspace)
         if mask_channel is None:
             mask_channel = config.mask_channel
