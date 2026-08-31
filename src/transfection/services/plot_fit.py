@@ -21,6 +21,7 @@ from transfection.core import (
     load_assay_for_workspace,
     load_slide_channel_labels,
     load_timeseries_csv,
+    parse_timeseries_csv_path,
     resolve_slide_channel,
     trace_color_alpha_from_fluor_name,
 )
@@ -391,8 +392,10 @@ def write_fitted_trace_grid(
 
     for panel_index, (ax, (csv_path, df)) in enumerate(zip(axes_flat, panels)):
         slide_channel = resolve_slide_channel(csv_path, mapping)
+        position, _signal_channel = parse_timeseries_csv_path(csv_path)
+        frames = [(csv_path, df)]
         trace_color, trace_alpha = trace_color_alpha_from_fluor_name(
-            plot_timeseries.trace_naming_haystack(csv_path, mapping, slide_channel_names)
+            plot_timeseries.trace_naming_haystack(slide_channel, frames, slide_channel_names)
         )
         matched_traces = 0
         trace_groups = df.groupby(plot_timeseries.trace_group_columns(df), sort=True, dropna=False)
@@ -400,7 +403,7 @@ def write_fitted_trace_grid(
             if not isinstance(group_key, tuple):
                 group_key = (group_key,)
             group_values = dict(zip(plot_timeseries.trace_group_columns(df), group_key, strict=True))
-            pos = int(group_values.get("pos", 0))
+            pos = int(group_values.get("pos", position))
             roi = int(group_values["roi"])
             lookup_key = (slide_channel, pos, roi)
             if lookup_key not in fit_lookup.index:
@@ -415,9 +418,8 @@ def write_fitted_trace_grid(
 
         ax.set_title(
             plot_timeseries.subplot_title(
-                csv_path,
+                slide_channel,
                 matched_traces,
-                mapping=mapping,
                 slide_channel_names=slide_channel_names,
             )
         )
