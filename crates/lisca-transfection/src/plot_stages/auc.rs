@@ -3,58 +3,64 @@ use std::path::Path;
 
 use mplot::prelude::{AxesStyle, BoxplotStyle, GridPos, Scale, TickFormat, TickLabelRotation};
 
-use crate::csv_io::{column_index, parse_f64, read_csv, slide_channel_column_index};
+use crate::csv_io::parse_f64;
 use crate::plot::{
     boxplot_tick_label, boxplot_x_axis_label, figure_builder_single, percentile_ylim, save_figure,
     slide_channel_labels, SAVE_PAD_SINGLE_INCHES,
 };
-use crate::slide::SlideMapping;
+use crate::sample_pack::{
+    concat_kind_rows, publish_sample_tables_xlsx, sample_pack_dir, sample_pack_dirnames,
+};
+use crate::slide::{require_named_samples, SlideMapping};
 
 pub fn run_plot_auc(workspace: &Path, mapping: &SlideMapping) -> Result<(), String> {
-    let auc_csv = workspace.join("results").join("auc.csv");
-    let (headers, rows) = read_csv(&auc_csv)?;
-    let slide_channel_index =
-        slide_channel_column_index(&headers).ok_or("missing slide_channel (or slide)")?;
-    let auc_index = column_index(&headers, "auc").ok_or("missing auc")?;
-
-    let labels = slide_channel_labels(mapping);
-    let mut grouped: BTreeMap<u32, Vec<f64>> = BTreeMap::new();
-    for row in rows {
-        let Some(channel) = parse_f64(&row[slide_channel_index]).map(|value| value as u32) else {
-            continue;
-        };
-        let Some(auc) = parse_f64(&row[auc_index]) else {
-            continue;
-        };
-        if auc > 0.0 {
-            grouped.entry(channel).or_default().push(auc);
-        }
-    }
-    if grouped.is_empty() {
-        return Err("No positive AUC values available for plotting".to_string());
-    }
-
-    let channels: Vec<u32> = grouped.keys().copied().collect();
-    let grouped_values: Vec<Vec<f64>> = channels
+    let named = require_named_samples(mapping)?;
+    publish_sample_tables_xlsx(workspace, &named, "auc")?;
+    let dirnames = sample_pack_dirnames(&named)?;
+    let labels = slide_channel_labels(&named);
+    let (headers, grouped) = concat_kind_rows(workspace, &named, "auc")?;
+    let auc_index = headers
         .iter()
-        .map(|channel| grouped.get(channel).cloned().unwrap_or_default())
-        .collect();
+        .position(|header| header == "auc")
+        .ok_or("missing auc")?;
+    let slide_index = headers.iter().position(|header| header == "slide_channel");
 
-    let results_dir = workspace.join("results");
-    write_auc_boxplot(
-        &results_dir.join("auc.png"),
-        &channels,
-        &grouped_values,
-        &labels,
-        false,
-    )?;
-    write_auc_boxplot(
-        &results_dir.join("auc_log.png"),
-        &channels,
-        &grouped_values,
-        &labels,
-        true,
-    )
+    for (channel, rows) in grouped {
+        let Some(dirname) = dirnames.get(&channel) else {
+            continue;
+        };
+        let mut values = Vec::new();
+        for row in rows {
+            let Some(auc) = parse_f64(&row[auc_index]) else {
+                continue;
+            };
+            if auc > 0.0 {
+                values.push(auc);
+            }
+        }
+        if values.is_empty() {
+            return Err("No positive AUC values available for plotting".to_string());
+        }
+        let dest_dir = sample_pack_dir(workspace, dirname);
+        let channels = vec![channel];
+        let grouped_values = vec![values];
+        write_auc_boxplot(
+            &dest_dir.join("auc.png"),
+            &channels,
+            &grouped_values,
+            &labels,
+            false,
+        )?;
+        write_auc_boxplot(
+            &dest_dir.join("auc_log.png"),
+            &channels,
+            &grouped_values,
+            &labels,
+            true,
+        )?;
+        let _ = slide_index;
+    }
+    Ok(())
 }
 
 fn write_auc_boxplot(

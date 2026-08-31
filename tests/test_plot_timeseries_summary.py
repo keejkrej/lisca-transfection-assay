@@ -70,9 +70,7 @@ def test_write_metric_plots_emits_summary_variants(tmp_path: Path) -> None:
     names = [path.name for path in written]
     assert names == [
         "traces.png",
-        "traces_shared_y.png",
         "traces_summary.png",
-        "traces_summary_shared_y.png",
     ]
     for path in written:
         assert path.is_file()

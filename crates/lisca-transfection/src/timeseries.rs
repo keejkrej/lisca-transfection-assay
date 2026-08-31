@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use super::csv_io::{column_index, parse_f64, read_csv};
+use super::csv_io::{column_index, parse_f64, read_csv, slide_channel_column_index};
 use super::slide::SlideMapping;
 
 #[derive(Debug, Clone)]
@@ -17,11 +17,11 @@ pub(crate) struct TracePanel {
 
 pub(crate) type TracePointGroup = BTreeMap<i64, Vec<(f64, f64)>>;
 
-/// Discover `timeseries/Pos{n}/ch{n}.csv` files.
+/// Discover `analysis/Pos{n}/ch{n}.csv` files.
 pub(crate) fn discover_timeseries_csvs(timeseries_dir: &Path) -> Result<Vec<PathBuf>, String> {
     if !timeseries_dir.is_dir() {
         return Err(format!(
-            "Expected timeseries/ directory at {}",
+            "Expected analysis/ directory at {}",
             timeseries_dir.display()
         ));
     }
@@ -72,6 +72,39 @@ pub(crate) fn discover_timeseries_csvs(timeseries_dir: &Path) -> Result<Vec<Path
         return Err(format!(
             "No position metrics CSV files (expected Pos{{n}}/ch{{n}}.csv) in {}",
             timeseries_dir.display()
+        ));
+    }
+    Ok(csvs)
+}
+
+pub(crate) fn discover_analysis_table_csvs(
+    workspace: &Path,
+    kind: &str,
+) -> Result<Vec<PathBuf>, String> {
+    let analysis_dir = workspace.join("analysis");
+    if !analysis_dir.is_dir() {
+        return Err(format!(
+            "Expected analysis/ directory at {}. Run transfection {kind} first.",
+            analysis_dir.display()
+        ));
+    }
+    let mut csvs = Vec::new();
+    for entry in std::fs::read_dir(&analysis_dir).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let pos_dir = entry.path();
+        if !pos_dir.is_dir() {
+            continue;
+        }
+        let file = pos_dir.join(format!("{kind}.csv"));
+        if file.is_file() {
+            csvs.push(file);
+        }
+    }
+    csvs.sort();
+    if csvs.is_empty() {
+        return Err(format!(
+            "No {kind}.csv files in {}/PosN/. Run transfection {kind} first.",
+            analysis_dir.display()
         ));
     }
     Ok(csvs)
@@ -167,7 +200,9 @@ pub(crate) fn load_trace_panels_by_sample(
 ) -> Result<Vec<TracePanel>, String> {
     let mut grouped: BTreeMap<u32, TracePanel> = BTreeMap::new();
     for path in csvs {
-        let slide_channel = resolve_slide_channel(path, mapping)?;
+        let Ok(slide_channel) = resolve_slide_channel(path, mapping) else {
+            continue;
+        };
         let panel = load_trace_panel(path, y_column)?;
         let entry = grouped.entry(slide_channel).or_insert_with(|| TracePanel {
             slide_channel,
@@ -180,6 +215,72 @@ pub(crate) fn load_trace_panels_by_sample(
         entry.y_values.extend(panel.y_values);
     }
     Ok(grouped.into_values().collect())
+}
+
+/// Load a published long-format `traces.csv` (one panel per `slide_channel`).
+pub(crate) fn load_trace_panels_from_table(
+    path: &Path,
+    y_column: &str,
+) -> Result<Vec<TracePanel>, String> {
+    let (headers, rows) = read_csv(path)?;
+    let slide_index = slide_channel_column_index(&headers).ok_or("missing slide_channel")?;
+    let mut grouped_rows: BTreeMap<u32, Vec<Vec<String>>> = BTreeMap::new();
+    for row in rows {
+        let Some(channel) = parse_f64(&row[slide_index]).map(|value| value as u32) else {
+            continue;
+        };
+        grouped_rows.entry(channel).or_default().push(row);
+    }
+    let mut panels = Vec::new();
+    for (slide_channel, channel_rows) in grouped_rows {
+        let groups = group_timeseries_rows_with_pos(&headers, &channel_rows, y_column, 0)?;
+        let mut y_values = Vec::new();
+        let traces = groups
+            .into_values()
+            .map(|mut points| {
+                points.sort_by(|left, right| {
+                    left.0
+                        .partial_cmp(&right.0)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                y_values.extend(points.iter().map(|(_, value)| *value));
+                points
+            })
+            .collect();
+        panels.push(TracePanel {
+            slide_channel,
+            paths: vec![path.to_path_buf()],
+            traces,
+            y_values,
+        });
+    }
+    Ok(panels)
+}
+
+/// Group `(t, y)` by `(pos, roi)`. `pos` falls back to `default_pos` when absent.
+pub(crate) fn group_timeseries_rows_with_pos(
+    headers: &[String],
+    rows: &[Vec<String>],
+    y_column: &str,
+    default_pos: i64,
+) -> Result<BTreeMap<(i64, i64), Vec<(f64, f64)>>, String> {
+    let t_index = column_index(headers, "t").ok_or("missing t column")?;
+    let y_index =
+        column_index(headers, y_column).ok_or_else(|| format!("missing {y_column} column"))?;
+    let roi_index = column_index(headers, "roi").ok_or("missing roi column")?;
+    let pos_index = column_index(headers, "pos");
+
+    let mut groups: BTreeMap<(i64, i64), Vec<(f64, f64)>> = BTreeMap::new();
+    for row in rows {
+        let roi = parse_f64(&row[roi_index]).ok_or("invalid roi")? as i64;
+        let pos = pos_index
+            .and_then(|index| parse_f64(&row[index]).map(|value| value as i64))
+            .unwrap_or(default_pos);
+        let t = parse_f64(&row[t_index]).ok_or("invalid t")?;
+        let y = parse_f64(&row[y_index]).ok_or("invalid y")?;
+        groups.entry((pos, roi)).or_default().push((t, y));
+    }
+    Ok(groups)
 }
 
 /// Group `(t, y)` points by ROI. Timeseries CSVs are already split per
@@ -214,7 +315,7 @@ mod tests {
 
     #[test]
     fn parse_timeseries_path_reads_pos_and_channel() {
-        let path = Path::new("/ws/timeseries/Pos7/ch2.csv");
+        let path = Path::new("/ws/analysis/Pos7/ch2.csv");
         assert_eq!(parse_timeseries_path(path).unwrap(), (7, 2));
     }
 
@@ -230,7 +331,7 @@ mod tests {
                 sample_name: "A".into(),
             },
         );
-        let path = Path::new("/ws/timeseries/Pos7/ch2.csv");
+        let path = Path::new("/ws/analysis/Pos7/ch2.csv");
         assert_eq!(resolve_slide_channel(path, &mapping).unwrap(), 3);
     }
 }

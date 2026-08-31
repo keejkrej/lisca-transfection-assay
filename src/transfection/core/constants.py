@@ -9,7 +9,9 @@ HELP = (
     "Python CLI and Rust crate live in this repo; Studio wire id is transfection."
 )
 PROG_NAME = "transfection"
-TIMESERIES_DIRNAME = "timeseries"
+# On-disk intermediates. CLI verbs stay timeseries / plot-timeseries.
+ANALYSIS_DIRNAME = "analysis"
+TIMESERIES_DIRNAME = ANALYSIS_DIRNAME
 RESULTS_DIRNAME = "results"
 DEFAULT_QUARTILES = "0.10,0.25,0.50,0.75,0.90"
 FIGURE_DPI = 100

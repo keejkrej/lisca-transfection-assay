@@ -44,11 +44,11 @@ rate** for \(m_0 k_{TL}\) — never “transfection efficiency”. No aliases.
 uv run transfection --help
 uv run transfection segment WORKSPACE [--assay PATH] [--force]
 uv run transfection timeseries WORKSPACE [--assay PATH]
-uv run transfection plot-timeseries WORKSPACE|TIMESERIES_DIR [--interval M]
+uv run transfection plot-timeseries WORKSPACE|ANALYSIS_DIR [--interval M]
 uv run transfection auc WORKSPACE [--interval M]
-uv run transfection plot-auc WORKSPACE|results/auc.csv
+uv run transfection plot-auc WORKSPACE
 uv run transfection fit WORKSPACE [--interval M] [--max-onset-minutes M]
-uv run transfection plot-fit WORKSPACE|results/fit.csv [--interval M]
+uv run transfection plot-fit WORKSPACE [--interval M]
 uv run transfection pipeline WORKSPACE [--force]   # needs roi/
 uv run transfection check-segment WORKSPACE   # manual mask QA only
 
@@ -69,6 +69,7 @@ Defaults:
 - `--interval` / `--max-onset-minutes` → from `assay.json` when omitted (`interval`, `analysis.maxOnsetMinutes`)
 - Segment skip / full-ROI timeseries → `analysis.skipSegment` (replaces CLI `--full-frame`)
 - Parallel stages (segment / timeseries / auc / fit) always use `os.cpu_count()` workers; timeseries writes each CSV as soon as that position finishes
+- Analysis stages (`timeseries` / `auc` / `fit`) write `analysis/PosN/*.csv` from `roi/` + `assay.json` interval/channels/maxOnset. They do **not** require `samples[].name`. Plot stages require named `samples[]` and write `results/<sample>/`.
 
 ### ROI crop (not in this package)
 
@@ -91,7 +92,10 @@ Stage order:
 crop → roi/
 
 # this package (needs roi/):
-segment → timeseries → plot-timeseries → auc → plot-auc → fit → plot-fit
+# analysis (sample-agnostic) then plot/results (named samples[]):
+segment → timeseries → auc → fit
+plot-timeseries → plot-auc → plot-fit
+# or pipeline, which runs both in that order
 ```
 
 ## Workspace layout
@@ -102,8 +106,8 @@ segment → timeseries → plot-timeseries → auc → plot-auc → fit → plot
 | `bbox/PosN.csv` | Site boxes from Aligner (input to pyama / `lisca-crop`) |
 | `roi/PosN/` | Cropped ROI stacks + slim `index.json` (from pyama / `lisca-crop` / Studio). Always `axisOrder: "TCZYX"`; keep `zCount` (`1` if no z-stack). Stack shape is derived as `[timeCount, channelCount, zCount, bbox.h, bbox.w]`. Optional `timeIndices` lists source acquisition frame indices per T plane; timeseries CSV `t` uses these, then `t * interval` is real minutes. |
 | `mask/PosN/` | Segmentation masks (written by `segment`) |
-| `timeseries/` | `Pos{N}/ch{C}.csv` metrics (`roi,t,area,background,sum,corrected`; no `pos` / `slide_channel`) |
-| `results/` | `auc.csv`, `fit.csv`, plots |
+| `analysis/` | Pipeline intermediates, **CSV only**. `Pos{N}/ch{C}.csv` traces (`roi,t,area,background,sum,corrected`); `Pos{N}/auc.csv`; `Pos{N}/fit.csv`. No xlsx. Analysis stages do not require `samples[].name`. |
+| `results/<sample>/` | User-facing packs only (filesystem-safe `samples[].name`; prefix `slideChannel` if names collide). `traces.xlsx` / `auc.xlsx` / `fit.xlsx` (**xlsx only**) plus PNG plots. Missing `samples[]` fails here, not during timeseries. |
 
 ## `assay.json` schema
 
@@ -118,10 +122,10 @@ Studio-compatible JSON object. Canonical Effect Schema: `@lisca/contracts` → `
 | `data.path` | string | no | Source path (crop tooling; unused by analysis stages) |
 | `interval.value` | number \| null | no (default **10** min) | Positive frame step |
 | `interval.unit` | `"second"` \| `"minute"` \| `"hour"` | no | Converted to minutes; default unit `minute` |
-| `samples` | array | **yes** | One row per condition / slide channel |
-| `samples[].slideChannel` | int | **yes** | Slide-channel key for AUC/fit grouping (resolved from `PosN/chC` + mapping) |
-| `samples[].name` | string | **yes** | Condition label on plots (empty name → row skipped) |
-| `samples[].positions` | string | **yes** | Position list/ranges (see below) |
+| `samples` | array | **plot/results** | Named conditions. Analysis stages work without it (discover `roi/PosN` + `analysis.channels`). Missing or empty names fail at plot/results, not timeseries. |
+| `samples[].slideChannel` | int | **yes** when `samples` is present | Slide-channel key for grouping `analysis/` into `results/<sample>/` |
+| `samples[].name` | string | **plot/results** | Folder + plot label. Empty name is kept for analysis but skipped when grouping results. |
+| `samples[].positions` | string | **yes** when `samples` is present | Position list/ranges (see below) |
 | `analysis.channels.mask` | int | **yes** | Default channel used for Otsu masks |
 | `analysis.channels.signal` | int[] | **yes** | Default intensity channel indices (non-empty; one timeseries CSV per channel) |
 | `analysis.sampleChannels` | array | no | Per-sample `{slideChannel, mask, signal}` overrides keyed by `slideChannel` |

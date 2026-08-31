@@ -11,6 +11,7 @@ from transfection.core import (
     SlideMapping,
     compute_roi_mask_stack,
     default_mask_path,
+    discover_roi_positions,
     load_assay_for_workspace,
     position_dir,
     read_position_index,
@@ -121,7 +122,8 @@ def _position_tasks(
 def run_slide_segmentation(
     workspace: Path,
     *,
-    mapping: SlideMapping,
+    mapping: SlideMapping | None,
+    mask_channel: int | None = None,
     variation_radius: int = 2,
     gaussian_sigma: float = 1.0,
     force: bool = False,
@@ -133,7 +135,20 @@ def run_slide_segmentation(
         raise ValueError(f"--gaussian-sigma must be >= 0, got {gaussian_sigma}")
 
     workspace = workspace.resolve()
-    slide_positions = mapping
+    if mapping:
+        slide_positions = mapping
+    else:
+        if mask_channel is None:
+            mask_channel = load_assay_for_workspace(workspace).mask_channel
+        positions = discover_roi_positions(workspace)
+        slide_positions = {
+            0: SlideChannelMapping(
+                positions=positions,
+                signal_channels=[0],
+                mask_channel=mask_channel,
+                sample_name="",
+            )
+        }
     channel_order = [slide_channel for slide_channel, _ in slide_positions.items()]
     tasks = _position_tasks(
         workspace,
@@ -217,11 +232,13 @@ def run_segment(
     force: bool = False,
     on_mask_written: MaskWrittenCallback | None = None,
 ) -> SlideSegmentationRunResult:
+    config = load_assay_for_workspace(workspace, assay)
     if mapping is None:
-        mapping = load_assay_for_workspace(workspace, assay).mapping
+        mapping = config.mapping or None
     return run_slide_segmentation(
         workspace,
         mapping=mapping,
+        mask_channel=config.mask_channel,
         variation_radius=variation_radius,
         gaussian_sigma=gaussian_sigma,
         force=force,

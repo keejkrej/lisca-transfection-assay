@@ -5,33 +5,43 @@ monorepo will import them via git URL; it is not a dependency of this crate.
 
 ## What is compared
 
-On a tiny synthetic workspace (`roi/` 4×4×4 T, 2 channels, one ROI):
+On a tiny synthetic workspace (`roi/` 4×4×4 T, 2 channels, one ROI, sample
+`condA`):
 
 | Stage | Files | Typical relative tolerance |
 | --- | --- | --- |
-| Timeseries | `timeseries/Pos1/ch1.csv` | `1e-6` |
-| AUC | `results/auc.csv` | `1e-6` |
-| Kinetic fit | `results/fit.csv` | `2e-2` vs Python CLI (grid-search / `lstsq` backends) |
-| Plot-fit scatter | `results/expression_rate_vs_onset_time.png` | existence only (both CLIs; no pixel diff) |
+| Timeseries | `analysis/Pos1/ch1.csv` | `1e-6` |
+| AUC | `analysis/Pos1/auc.csv` | `1e-6` |
+| Kinetic fit | `analysis/Pos1/fit.csv` | `2e-2` vs Python CLI (grid-search / `lstsq` backends) |
+| Results tables | `results/condA/{traces,auc,fit}.xlsx` | same numeric columns as the analysis CSVs (xlsx values, not pixels) |
+| Plot-fit scatter | `results/condA/expression_rate_vs_onset_time.png` | existence only (both CLIs; no pixel diff) |
 
 Plots are not pixel-compared. Crop / ND2 / CZI are out of scope.
 Smart-exclusion and SlimSAM stay in lisca. Optional ONNX pattern U-Net
 (`--features onnx`) is assay-owned; Otsu is the CSV-parity default.
 
-Both CLIs should write the same `results/` PNG basenames. Fit plots:
+Analysis stages (`timeseries` / `auc` / `fit`) are sample-agnostic: they write
+`analysis/PosN/*.csv` from `roi/` + `assay.json` interval/channels/maxOnset and
+do **not** require `samples[].name`. Plot stages read those CSVs and write
+`results/<sample>/` (xlsx + png). Missing `samples[]` fails at plot/results.
+
+Both CLIs should write the same `results/<sample>/` PNG basenames. Fit plots
+(one axes per sample; no subplot grids, no `*_shared_y`):
 
 - `baseline_intensity.png`, `protein_lifetime.png`, `mrna_lifetime.png`,
   `onset_time.png`, `expression_rate.png`, `expression_rate_log.png`
-- `traces_fit.png`, `traces_fit_shared_y.png`
-- `expression_rate_vs_onset_time.png` (Pearson scatter of expression rate vs
-  onset time; successful finite fits only)
+- `traces_fit.png`
+- `expression_rate_vs_onset_time.png` (one scatter for this sample; Pearson r
+  and n; successful finite fits only)
 
-CSV contract:
+CSV / table contract:
 
-- Timeseries: `roi,t,area,background,sum,corrected` (no `pos` / `slide_channel`;
-  those are joined later from the path + `assay.json`).
-- AUC / fit tables: `slide_channel,pos,roi,…` (`pos` inferred from
-  `timeseries/Pos{n}/ch{n}.csv`).
+- Analysis traces: `roi,t,area,background,sum,corrected` (no `pos` /
+  `slide_channel`; those are joined later from the path + `assay.json`).
+- Analysis AUC / fit: `roi,…` (`channel` only when that Pos has multiple
+  signal CSVs). `pos` is the folder name.
+- Results XLSX: concat by named `samples[]`, with `slide_channel`, `sample`,
+  and `pos` prefixed.
 
 ## How to run
 
@@ -40,16 +50,17 @@ CSV contract:
 bash install.sh          # if .uv / .venv are missing
 .uv/uv run pytest
 
-# Rust units + Python-vs-Rust CSV comparison
+# Rust units + Python-vs-Rust CSV / XLSX comparison
 cargo test -p lisca-transfection
 ```
 
 `cargo test` shells out to `.uv/uv run transfection` (or `uv` on `PATH`) for
 `python_and_rust_csvs_match_on_synthetic_workspace`. That test compares
-timeseries / AUC / fit CSVs and checks that **both** Python `plot-fit` and
-Rust `run_plot_fit` write `results/expression_rate_vs_onset_time.png`
-(file exists and is non-empty; plots are not pixel-compared). Install Python
-deps first (`install.sh`) so the test can spawn the CLI.
+`analysis/` CSVs, dumps `results/<sample>/*.xlsx` through pandas for a table
+compare, and checks that **both** Python `plot-fit` and Rust `run_plot_fit`
+write `results/condA/expression_rate_vs_onset_time.png` (file exists and is
+non-empty; plots are not pixel-compared). Install Python deps first
+(`install.sh`) so the test can spawn the CLI.
 
 ## GitHub Actions
 
@@ -73,12 +84,12 @@ workflow installs the `-dev` packages on `ubuntu-latest`.
 WS=/path/to/workspace   # must already have roi/ + assay.json
 
 .uv/uv run transfection pipeline "$WS"
-# then, after backing up results/ and timeseries/:
+# then, after backing up analysis/ and results/:
 cargo run -p lisca-transfection --release --bin lisca-analyze -- pipeline "$WS"
 ```
 
-Join AUC/fit on `slide_channel,pos,roi` and compare with relative error
-`|a−b| / max(|a|,|b|,ε)`.
+Compare `analysis/PosN/*.csv` and dump `results/<sample>/{traces,auc,fit}.xlsx`
+to tables. Relative error `|a−b| / max(|a|,|b|,ε)`.
 
 ## Public API for lisca
 

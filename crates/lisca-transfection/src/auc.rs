@@ -1,63 +1,45 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 
 use crate::array::trapezoidal_integral;
-use crate::csv_io::{format_float, write_csv};
-use crate::slide::{load_mapping_for_workspace, SlideMapping};
+use crate::csv_io::{format_float, write_csv_only};
 use crate::timeseries::{
-    discover_timeseries_csvs, group_timeseries_rows, parse_timeseries_path, resolve_slide_channel,
+    discover_timeseries_csvs, group_timeseries_rows, parse_timeseries_path,
 };
 
-const OUTPUT_COLUMNS: [&str; 4] = ["slide_channel", "pos", "roi", "auc"];
-
-pub fn run_auc(workspace: &Path, interval: f64) -> Result<PathBuf, String> {
-    let mapping = load_mapping_for_workspace(workspace, None)?;
-    run_auc_with_mapping(workspace, interval, &mapping)
-}
-
-pub fn run_auc_with_mapping(
-    workspace: &Path,
-    interval: f64,
-    mapping: &SlideMapping,
-) -> Result<PathBuf, String> {
+pub fn run_auc(workspace: &Path, interval: f64) -> Result<Vec<PathBuf>, String> {
     if interval <= 0.0 {
         return Err(format!("interval must be > 0, got {interval}"));
     }
-    let timeseries_dir = workspace.join("timeseries");
+    let timeseries_dir = workspace.join("analysis");
     let csvs = discover_timeseries_csvs(&timeseries_dir)?;
-    let rows = compute_auc_table(&csvs, interval, mapping)?;
-    let output = workspace.join("results").join("auc.csv");
-    write_auc_csv(&output, &rows)?;
-    Ok(output)
+    let rows = compute_auc_table(&csvs, interval)?;
+    write_position_auc_tables(workspace, &rows)
 }
 
 #[derive(Debug, Clone)]
 struct AucRow {
-    slide_channel: u32,
     pos: i64,
+    channel: u32,
     roi: i64,
     auc: f64,
 }
 
 #[derive(Debug, Clone)]
 struct AucTraceTask {
-    slide_channel: u32,
     pos: i64,
+    channel: u32,
     roi: i64,
     times: Vec<f64>,
     values: Vec<f64>,
 }
 
-fn compute_auc_table(
-    csvs: &[PathBuf],
-    interval: f64,
-    mapping: &SlideMapping,
-) -> Result<Vec<AucRow>, String> {
+fn compute_auc_table(csvs: &[PathBuf], interval: f64) -> Result<Vec<AucRow>, String> {
     let mut tasks = Vec::new();
     for csv_path in csvs {
-        let slide_channel = resolve_slide_channel(csv_path, mapping)?;
-        let (position, _channel) = parse_timeseries_path(csv_path)?;
+        let (position, channel) = parse_timeseries_path(csv_path)?;
         let (headers, data_rows) = crate::csv_io::read_csv(csv_path)?;
         let groups = group_timeseries_rows(&headers, &data_rows, "corrected")?;
         for (roi, mut trace) in groups {
@@ -67,8 +49,8 @@ fn compute_auc_table(
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
             tasks.push(AucTraceTask {
-                slide_channel,
                 pos: position as i64,
+                channel,
                 roi,
                 times: trace.iter().map(|(t, _)| *t).collect(),
                 values: trace.iter().map(|(_, value)| *value).collect(),
@@ -84,32 +66,61 @@ fn compute_auc_table(
         .map(|task| {
             let times: Vec<f64> = task.times.iter().map(|t| t * interval).collect();
             AucRow {
-                slide_channel: task.slide_channel,
                 pos: task.pos,
+                channel: task.channel,
                 roi: task.roi,
                 auc: trapezoidal_integral(&times, &task.values),
             }
         })
         .collect::<Vec<_>>();
     rows.sort_by(|left, right| {
-        (left.slide_channel, left.pos, left.roi).cmp(&(right.slide_channel, right.pos, right.roi))
+        (left.pos, left.channel, left.roi).cmp(&(right.pos, right.channel, right.roi))
     });
     Ok(rows)
 }
 
-fn write_auc_csv(path: &Path, rows: &[AucRow]) -> Result<(), String> {
-    let csv_rows = rows
-        .iter()
-        .map(|row| {
-            vec![
-                row.slide_channel.to_string(),
-                row.pos.to_string(),
-                row.roi.to_string(),
-                format_float(row.auc),
-            ]
-        })
-        .collect::<Vec<_>>();
-    write_csv(path, &OUTPUT_COLUMNS, &csv_rows)
+fn write_position_auc_tables(workspace: &Path, rows: &[AucRow]) -> Result<Vec<PathBuf>, String> {
+    let mut grouped: BTreeMap<i64, Vec<&AucRow>> = BTreeMap::new();
+    for row in rows {
+        grouped.entry(row.pos).or_default().push(row);
+    }
+    let mut written = Vec::new();
+    for (pos, part) in grouped {
+        let multi = {
+            let mut channels = part.iter().map(|row| row.channel).collect::<Vec<_>>();
+            channels.sort_unstable();
+            channels.dedup();
+            channels.len() > 1
+        };
+        let output = workspace
+            .join("analysis")
+            .join(format!("Pos{pos}"))
+            .join("auc.csv");
+        if multi {
+            let csv_rows = part
+                .iter()
+                .map(|row| {
+                    vec![
+                        row.channel.to_string(),
+                        row.roi.to_string(),
+                        format_float(row.auc),
+                    ]
+                })
+                .collect::<Vec<_>>();
+            write_csv_only(&output, &["channel", "roi", "auc"], &csv_rows)?;
+        } else {
+            let csv_rows = part
+                .iter()
+                .map(|row| vec![row.roi.to_string(), format_float(row.auc)])
+                .collect::<Vec<_>>();
+            write_csv_only(&output, &["roi", "auc"], &csv_rows)?;
+        }
+        written.push(output);
+    }
+    if written.is_empty() {
+        return Err("No AUC rows produced".to_string());
+    }
+    Ok(written)
 }
 
 #[cfg(test)]

@@ -70,6 +70,40 @@ pub fn position_dir(workspace: &Path, pos: u32) -> Result<PathBuf, String> {
     Ok(pos_dir)
 }
 
+pub fn discover_roi_positions(workspace: &Path) -> Result<Vec<u32>, String> {
+    let roi_root = workspace.join("roi");
+    if !roi_root.is_dir() {
+        return Err(format!(
+            "Expected roi/ directory at {}",
+            roi_root.display()
+        ));
+    }
+    let mut positions = Vec::new();
+    for entry in std::fs::read_dir(&roi_root).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if let Some(rest) = name.strip_prefix("Pos") {
+            if let Ok(position) = rest.parse::<u32>() {
+                positions.push(position);
+            }
+        }
+    }
+    positions.sort_unstable();
+    if positions.is_empty() {
+        return Err(format!(
+            "No roi/PosN directories in {}",
+            roi_root.display()
+        ));
+    }
+    Ok(positions)
+}
+
 pub fn read_position_index(pos_dir: &Path) -> Result<PositionIndex, String> {
     let index_path = pos_dir.join("index.json");
     let bytes = std::fs::read(&index_path)

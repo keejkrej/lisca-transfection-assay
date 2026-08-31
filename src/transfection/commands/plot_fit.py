@@ -5,19 +5,14 @@ from typing import Annotated
 
 import typer
 
-from transfection import core as paths
 from transfection.app import app
-from transfection.core import (
-    infer_workspace_for_plot_csv,
-    load_assay_for_workspace,
-    require_interval_minutes,
-)
+from transfection.core import infer_workspace_root, resolve_interval_minutes
 from transfection.services.plot_fit import format_written_fit_plot_messages, run_plot_fit
 
 NAME = "plot-fit"
 HELP = (
-    "Plot fit parameter boxplots, fitted-trace grids, and expression rate vs onset time. "
-    "Interval defaults from assay.json when --interval is omitted."
+    "Read analysis/PosN/fit.csv (never refits) and write results/<sample>/fit.xlsx "
+    "plus single-panel kinetic PNGs. Requires samples[].name."
 )
 
 
@@ -27,11 +22,8 @@ def plot_fit(
         Path,
         typer.Argument(
             exists=True,
-            metavar="FIT_CSV",
-            help=(
-                f"<workspace>/{paths.RESULTS_DIRNAME}/fit.csv, or workspace root. "
-                f"Sibling {paths.TIMESERIES_DIRNAME}/ supplies raw traces for the fit grid."
-            ),
+            metavar="WORKSPACE",
+            help="Workspace root containing analysis/PosN/fit.csv.",
         ),
     ],
     interval: Annotated[
@@ -49,7 +41,7 @@ def plot_fit(
             "-o",
             file_okay=False,
             dir_okay=True,
-            help="Directory for output PNGs. Default: same directory as the fit CSV.",
+            help="Directory for output PNGs when plotting a single sample. Default: results/<sample>/.",
         ),
     ] = None,
     columns: Annotated[
@@ -57,10 +49,7 @@ def plot_fit(
         typer.Option(
             "--columns",
             min=1,
-            help=(
-                "Subplot columns for fitted-trace grids. Default: auto from panel count "
-                "(same layout table as plot-timeseries, up to 12 samples / 3×4)."
-            ),
+            help="Unused for per-sample single-panel plots (kept for CLI compatibility).",
         ),
     ] = None,
     assay: Annotated[
@@ -74,17 +63,10 @@ def plot_fit(
         ),
     ] = None,
 ) -> None:
-    path = fit_csv
-    if path.is_dir():
-        candidate = path / paths.RESULTS_DIRNAME / "fit.csv"
-        if not candidate.is_file():
-            raise typer.BadParameter(f"no {paths.RESULTS_DIRNAME}/fit.csv under {path}")
-        path = candidate
-    workspace = infer_workspace_for_plot_csv(path)
-    config = load_assay_for_workspace(workspace, assay)
-    resolved = require_interval_minutes(config, override=interval)
+    workspace = infer_workspace_root(fit_csv)
+    resolved = resolve_interval_minutes(workspace, assay=assay, override=interval)
     output_plots = run_plot_fit(
-        path,
+        fit_csv,
         output=output,
         interval=resolved,
         columns=columns,

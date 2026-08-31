@@ -5,13 +5,8 @@ from typing import Annotated
 
 import typer
 
-from transfection import core as paths
 from transfection.app import app
-from transfection.core import (
-    infer_workspace_for_timeseries_dir,
-    load_assay_for_workspace,
-    require_interval_minutes,
-)
+from transfection.core import infer_workspace_root, resolve_interval_minutes
 from transfection.services.plot_timeseries import (
     format_written_timeseries_plot_message,
     run_plot_timeseries,
@@ -19,9 +14,9 @@ from transfection.services.plot_timeseries import (
 
 NAME = "plot-timeseries"
 HELP = (
-    f"Plot metrics CSVs in a {paths.TIMESERIES_DIRNAME}/ folder as PNG grids under "
-    f"{paths.RESULTS_DIRNAME}/ (individual traces, mean/median/IQR summary, area, "
-    "shared-y variants). X axis is frame index × interval (minutes)."
+    "Read analysis/PosN/chC.csv (never recomputes traces) and write "
+    "results/<sample>/traces.xlsx plus single-panel traces.png, "
+    "traces_summary.png, and area.png. Requires samples[].name."
 )
 
 
@@ -31,13 +26,10 @@ def plot_timeseries(
         Path,
         typer.Argument(
             exists=True,
-            file_okay=False,
+            file_okay=True,
             dir_okay=True,
-            metavar="TIMESERIES_DIR",
-            help=(
-                f"Directory of per-channel metrics CSVs (typically <workspace>/{paths.TIMESERIES_DIRNAME}). "
-                f"Or pass the workspace root if it contains {paths.TIMESERIES_DIRNAME}/."
-            ),
+            metavar="WORKSPACE|ANALYSIS_DIR",
+            help="Workspace root or analysis/ directory.",
         ),
     ],
     interval: Annotated[
@@ -45,7 +37,7 @@ def plot_timeseries(
         typer.Option(
             "--interval",
             min=0.0,
-            help="Minutes per frame. Default: parent workspace assay.json interval.",
+            help="Minutes per frame. Default: workspace assay.json interval.",
         ),
     ] = None,
     output: Annotated[
@@ -53,10 +45,7 @@ def plot_timeseries(
         typer.Option(
             "--output",
             "-o",
-            help=(
-                f"Primary output PNG path. Default: <workspace>/{paths.RESULTS_DIRNAME}/traces.png "
-                "with companion summary / shared-y / area plots."
-            ),
+            help="Primary output PNG path when plotting a single sample. Default: results/<sample>/traces.png.",
         ),
     ] = None,
     columns: Annotated[
@@ -64,10 +53,7 @@ def plot_timeseries(
         typer.Option(
             "--columns",
             min=1,
-            help=(
-                "Subplot columns. Default: auto from sample count "
-                "(1→1×1, 2→1×2, 3–4→2×2, 5–6→2×3, 7–9→3×3, 10–12→3×4)."
-            ),
+            help="Unused for per-sample single-panel plots (kept for CLI compatibility).",
         ),
     ] = None,
     assay: Annotated[
@@ -81,18 +67,10 @@ def plot_timeseries(
         ),
     ] = None,
 ) -> None:
-    workspace = (
-        metrics_dir
-        if (metrics_dir / paths.TIMESERIES_DIRNAME).is_dir()
-        else infer_workspace_for_timeseries_dir(metrics_dir)
-    )
-    ts_dir = metrics_dir if metrics_dir.name == paths.TIMESERIES_DIRNAME else workspace / paths.TIMESERIES_DIRNAME
-    if not ts_dir.is_dir():
-        ts_dir = metrics_dir
-    config = load_assay_for_workspace(workspace, assay)
-    resolved = require_interval_minutes(config, override=interval)
+    workspace = infer_workspace_root(metrics_dir)
+    resolved = resolve_interval_minutes(workspace, assay=assay, override=interval)
     written_plots = run_plot_timeseries(
-        metrics_dir=ts_dir,
+        metrics_dir=workspace,
         interval=resolved,
         output=output,
         columns=columns,

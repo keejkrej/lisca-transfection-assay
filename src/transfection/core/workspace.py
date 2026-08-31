@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from transfection.core.assay import load_assay_for_workspace
-from transfection.core.constants import RESULTS_DIRNAME, TIMESERIES_DIRNAME
+from transfection.core.assay import load_assay_for_workspace, named_sample_mapping
+from transfection.core.constants import ANALYSIS_DIRNAME, RESULTS_DIRNAME
 from transfection.core.slide import SlideMapping
 
 _TRACE_ALPHA = 0.1
@@ -34,21 +34,45 @@ def is_workspace_metrics_timeseries_csv(path: Path) -> bool:
     return bool(_WORKSPACE_METRICS_STEM.fullmatch(path.stem))
 
 
+def workspace_analysis_dir(workspace: Path) -> Path:
+    return workspace.resolve() / ANALYSIS_DIRNAME
+
+
 def workspace_timeseries_dir(workspace: Path) -> Path:
-    return workspace.resolve() / TIMESERIES_DIRNAME
+    """On-disk folder is ``analysis/``; CLI verb stays timeseries."""
+    return workspace_analysis_dir(workspace)
 
 
 def workspace_results_dir(workspace: Path) -> Path:
     return workspace.resolve() / RESULTS_DIRNAME
 
 
+def analysis_position_dir(workspace: Path, position: int) -> Path:
+    return workspace_analysis_dir(workspace) / f"Pos{position}"
+
+
+def default_position_timeseries_csv_path(
+    workspace: Path,
+    position: int,
+    signal_channel: int,
+) -> Path:
+    return (analysis_position_dir(workspace, position) / f"ch{signal_channel}.csv").resolve()
+
+
+def analysis_position_table_csv(workspace: Path, position: int, kind: str) -> Path:
+    return (analysis_position_dir(workspace, position) / f"{kind}.csv").resolve()
+
+
 def discover_timeseries_csvs(timeseries_dir: Path) -> list[Path]:
     if not timeseries_dir.is_dir():
         raise ValueError(
-            f"Expected {TIMESERIES_DIRNAME}/ directory at {timeseries_dir}. "
+            f"Expected {ANALYSIS_DIRNAME}/ directory at {timeseries_dir}. "
             "Run transfection timeseries first."
         )
-    csvs = sorted(timeseries_dir.glob("Pos*/ch*.csv"), key=lambda path: (path.parent.name, path.name))
+    csvs = sorted(
+        timeseries_dir.glob("Pos*/ch*.csv"),
+        key=lambda path: (path.parent.name, path.name),
+    )
     if not csvs:
         raise ValueError(f"No CSV metrics files in {timeseries_dir}")
     metrics = [path for path in csvs if is_workspace_metrics_timeseries_csv(path)]
@@ -59,15 +83,40 @@ def discover_timeseries_csvs(timeseries_dir: Path) -> list[Path]:
     return metrics
 
 
+def discover_analysis_table_csvs(workspace: Path, kind: str) -> list[Path]:
+    analysis_dir = workspace_analysis_dir(workspace)
+    if not analysis_dir.is_dir():
+        raise ValueError(
+            f"Expected {ANALYSIS_DIRNAME}/ directory at {analysis_dir}. "
+            f"Run transfection {kind} first."
+        )
+    csvs = sorted(
+        analysis_dir.glob(f"Pos*/{kind}.csv"),
+        key=lambda path: path.parent.name,
+    )
+    if not csvs:
+        raise ValueError(
+            f"No {kind}.csv files in {analysis_dir}/PosN/. Run transfection {kind} first."
+        )
+    return csvs
+
+
 def parse_timeseries_csv_path(csv_path: Path) -> tuple[int, int]:
-    """Return ``(position, signal_channel)`` from ``timeseries/Pos{n}/ch{n}.csv``."""
+    """Return ``(position, signal_channel)`` from ``analysis/Pos{n}/ch{n}.csv``."""
     parent_match = _POS_DIR.fullmatch(csv_path.parent.name)
     stem_match = _CH_STEM.fullmatch(csv_path.stem)
     if parent_match is None or stem_match is None:
         raise ValueError(
-            f"Expected timeseries path Pos{{position}}/ch{{channel}}.csv, got {csv_path}"
+            f"Expected analysis path Pos{{position}}/ch{{channel}}.csv, got {csv_path}"
         )
     return int(parent_match.group(1)), int(stem_match.group(1))
+
+
+def parse_analysis_position_dir(path: Path) -> int:
+    match = _POS_DIR.fullmatch(path.name)
+    if match is None:
+        raise ValueError(f"Expected analysis/Pos{{n}} directory, got {path}")
+    return int(match.group(1))
 
 
 def build_position_signal_slide_channel_lookup(mapping: SlideMapping) -> dict[tuple[int, int], int]:
@@ -101,13 +150,33 @@ def infer_workspace_for_plot_csv(csv_file: Path) -> Path:
     parent = csv_file.parent.resolve()
     if parent.name == RESULTS_DIRNAME:
         return parent.parent
-    if parent.parent.name == TIMESERIES_DIRNAME:
+    if parent.parent.name == RESULTS_DIRNAME:
         return parent.parent.parent
+    if parent.parent.name == ANALYSIS_DIRNAME:
+        return parent.parent.parent
+    if parent.name == ANALYSIS_DIRNAME:
+        return parent.parent
     return parent
 
 
 def infer_workspace_for_timeseries_dir(timeseries_dir: Path) -> Path:
-    return timeseries_dir.parent.resolve()
+    resolved = timeseries_dir.resolve()
+    if resolved.name == ANALYSIS_DIRNAME:
+        return resolved.parent
+    return resolved.parent.resolve()
+
+
+def infer_workspace_root(path: Path) -> Path:
+    resolved = path.expanduser().resolve()
+    if resolved.is_file():
+        return infer_workspace_for_plot_csv(resolved)
+    if (resolved / "assay.json").is_file() or (resolved / ANALYSIS_DIRNAME).is_dir():
+        return resolved
+    if resolved.name == ANALYSIS_DIRNAME:
+        return resolved.parent
+    if resolved.parent.name == RESULTS_DIRNAME:
+        return resolved.parent.parent
+    return resolved
 
 
 def load_slide_channel_labels(workspace: Path) -> dict[int, str]:
@@ -119,7 +188,7 @@ def load_slide_channel_labels(workspace: Path) -> dict[int, str]:
         config = load_assay_for_workspace(workspace)
     except ValueError:
         return {}
-    return {slide_channel: entry.sample_name for slide_channel, entry in config.mapping.items()}
+    return {slide_channel: entry.sample_name for slide_channel, entry in named_sample_mapping(config).items()}
 
 
 def boxplot_tick_labels(

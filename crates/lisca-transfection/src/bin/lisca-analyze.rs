@@ -66,13 +66,13 @@ Usage:
 
 Commands (same stage names as `transfection`):
   segment           Masks → mask/PosN/ (Otsu default; --backend onnx with --features onnx)
-  timeseries        Intensity metrics → timeseries/Pos{{n}}/ch{{n}}.csv
-  auc               Trapezoidal AUC → results/auc.csv
-  fit               Two-exponential kinetic fit → results/fit.csv
-  plot-timeseries   Trace / area / summary PNGs under results/
-  plot-auc          AUC boxplots (linear + log)
-  plot-fit          Fit parameter boxplots, traces_fit.png, expression_rate_vs_onset_time.png
-  pipeline          Full Studio order from assay.json
+  timeseries        Intensity metrics → analysis/Pos{{n}}/ch{{n}}.csv (CSV only; sample names not required)
+  auc               Trapezoidal AUC → analysis/PosN/auc.csv (CSV only; sample names not required)
+  fit               Two-exponential kinetic fit → analysis/PosN/fit.csv (CSV only; sample names not required)
+  plot-timeseries   Read analysis/ traces; write results/<sample>/traces.xlsx + traces.png / traces_summary.png / area.png
+  plot-auc          Read analysis/ auc.csv; write results/<sample>/auc.xlsx + auc.png / auc_log.png
+  plot-fit          Read analysis/ fit.csv; write results/<sample>/fit.xlsx + kinetic PNGs
+  pipeline          Analysis stages then plot stages (plot requires samples[].name)
                     (aliases: analyze, all)
 
 Common options:
@@ -272,7 +272,7 @@ fn reject_removed_jobs_flag(args: &[String]) -> Result<(), String> {
 
 fn require_workspace(args: &[String]) -> Result<PathBuf, String> {
     let path = first_positional(args).ok_or_else(|| {
-        "missing WORKSPACE path (directory with assay.json / roi/ / timeseries/)".to_string()
+        "missing WORKSPACE path (directory with assay.json / roi/ / analysis/)".to_string()
     })?;
     let path = PathBuf::from(path);
     if !path.is_dir() {
@@ -281,16 +281,19 @@ fn require_workspace(args: &[String]) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// Accept either `<workspace>` or `<workspace>/timeseries` (transfection plot-timeseries shape).
+/// Accept either `<workspace>` or `<workspace>/analysis` (transfection plot-timeseries shape).
 fn require_workspace_or_timeseries_dir(args: &[String]) -> Result<PathBuf, String> {
     let path = require_workspace(args)?;
-    if path.file_name().and_then(|n| n.to_str()) == Some("timeseries") {
+    if matches!(
+        path.file_name().and_then(|n| n.to_str()),
+        Some("analysis") | Some("timeseries")
+    ) {
         return path
             .parent()
             .map(Path::to_path_buf)
-            .ok_or_else(|| "timeseries path has no parent workspace".to_string());
+            .ok_or_else(|| "analysis path has no parent workspace".to_string());
     }
-    if path.join("timeseries").is_dir() || path.join("assay.json").is_file() {
+    if path.join("analysis").is_dir() || path.join("assay.json").is_file() {
         return Ok(path);
     }
     Ok(path)

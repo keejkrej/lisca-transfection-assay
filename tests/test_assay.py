@@ -8,10 +8,12 @@ from pathlib import Path
 import pytest
 
 from transfection.core.assay import (
+    MISSING_SAMPLES_FOR_PLOT,
     build_slide_mapping_from_assay,
     load_assay,
     parse_interval_minutes,
     require_interval_minutes,
+    require_named_samples,
 )
 from transfection.core.slide import parse_position_spec
 
@@ -134,11 +136,40 @@ def test_interval_units() -> None:
     assert parse_interval_minutes(None, "minute") is None
 
 
-def test_missing_samples_errors(tmp_path: Path) -> None:
+def test_missing_samples_ok_for_analysis(tmp_path: Path) -> None:
     path = tmp_path / "assay.json"
-    path.write_text(json.dumps({"type": "transfection", "samples": []}), encoding="utf-8")
-    with pytest.raises(ValueError, match="no slide channels"):
-        load_assay(path)
+    path.write_text(
+        json.dumps(
+            {
+                "type": "transfection",
+                "analysis": {"channels": {"mask": 0, "signal": [1]}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = load_assay(path)
+    assert config.mapping == {}
+    with pytest.raises(ValueError, match="plot/results stages require"):
+        require_named_samples(config)
+
+
+def test_empty_sample_names_ok_for_analysis_not_plot(tmp_path: Path) -> None:
+    path = tmp_path / "assay.json"
+    path.write_text(
+        json.dumps(
+            _minimal_assay(
+                samples=[{"slideChannel": 0, "name": "", "positions": "1"}],
+            )
+        ),
+        encoding="utf-8",
+    )
+    config = load_assay(path)
+    assert config.mapping[0].sample_name == ""
+    assert config.mapping[0].positions == [1]
+    with pytest.raises(ValueError, match="plot/results stages require") as exc:
+        require_named_samples(config)
+    assert "timeseries, auc, and fit do not" in str(exc.value)
+    assert "need sample names" in MISSING_SAMPLES_FOR_PLOT
 
 
 def test_missing_channels_errors(tmp_path: Path) -> None:

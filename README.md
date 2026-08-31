@@ -42,11 +42,16 @@ Uses a local `.uv` and `uv sync`.
 .uv/uv run transfection --help
 
 .uv/uv run transfection segment WORKSPACE
-.uv/uv run transfection timeseries WORKSPACE
+.uv/uv run transfection timeseries WORKSPACE   # analysis/PosN/chC.csv; no sample names required
 .uv/uv run transfection auc WORKSPACE
 .uv/uv run transfection fit WORKSPACE
+.uv/uv run transfection plot-timeseries WORKSPACE   # results/<sample>/; requires samples[].name
+.uv/uv run transfection plot-auc WORKSPACE
+.uv/uv run transfection plot-fit WORKSPACE
 .uv/uv run transfection pipeline WORKSPACE
 ```
+
+Typical flow is **analysis stages then plot stages**. Re-run plot after style changes without re-fitting. If `samples[]` is missing, timeseries/auc/fit still write `analysis/`; plot/results fail with a clear error.
 
 ## Run (Rust)
 
@@ -79,9 +84,8 @@ cargo test -p lisca-transfection --features onnx
 ```
 
 `cargo test` includes a synthetic-workspace comparison of Python vs Rust
-timeseries / AUC / fit CSVs (needs `uv`, from `.uv/uv` after `install.sh` or
-on `PATH`) and checks that both `plot-fit` implementations write
-`results/expression_rate_vs_onset_time.png`. GitHub Actions runs the same
-commands on PRs and `main`. Details: **`docs/parity.md`**.
+`analysis/` CSVs plus `results/<sample>/` XLSX tables and PNG existence
+(needs `uv`, from `.uv/uv` after `install.sh` or on `PATH`). GitHub Actions
+runs the same commands on PRs and `main`. Details: **`docs/parity.md`**.
 
 Full stage list and `assay.json` schema: `AGENTS.md`.

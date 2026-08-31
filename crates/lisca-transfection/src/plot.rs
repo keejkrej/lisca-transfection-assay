@@ -29,10 +29,10 @@ use super::array::quantile;
 use super::slide::SlideMapping;
 use super::timeseries::TracePanel;
 
-/// Write individual-trace grids plus mean/median/IQR summary companions.
+/// Write individual-trace plot plus mean/median/IQR summary (no shared-y).
 ///
-/// Outputs (when primary is `traces.png`):
-/// `traces.png`, `traces_shared_y.png`, `traces_summary.png`, `traces_summary_shared_y.png`.
+/// Outputs (when primary is `traces.png`): `traces.png`, `traces_summary.png`.
+/// For `area.png`, pass `include_summary = false`.
 pub(crate) fn write_metric_plots(
     panels: &[TracePanel],
     output_plot: &Path,
@@ -40,22 +40,12 @@ pub(crate) fn write_metric_plots(
     interval: f64,
     columns: Option<usize>,
     mapping: &SlideMapping,
+    include_summary: bool,
 ) -> Result<(), String> {
     let panel_ylims: Vec<(f64, f64)> = panels
         .iter()
         .map(|panel| percentile_ylim(&panel.y_values))
         .collect();
-    let unified_low = panel_ylims
-        .iter()
-        .map(|(low, _)| *low)
-        .fold(f64::INFINITY, f64::min);
-    let unified_high = panel_ylims
-        .iter()
-        .map(|(_, high)| *high)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let shared_ylim = expand_degenerate_ylim(unified_low, unified_high);
-    let shared_y_plot = companion_plot_path(output_plot, "shared_y");
-
     write_subplot_grid(
         panels,
         output_plot,
@@ -65,27 +55,17 @@ pub(crate) fn write_metric_plots(
         mapping,
         |index| panel_ylims.get(index).copied().unwrap_or((0.0, 1.0)),
     )?;
-    write_subplot_grid(
-        panels,
-        &shared_y_plot,
-        y_label,
-        interval,
-        columns,
-        mapping,
-        |_| shared_ylim,
-    )?;
-
-    let summary_plot = companion_plot_path(output_plot, "summary");
-    let summary_shared_y_plot = companion_plot_path(&summary_plot, "shared_y");
-    write_summary_metric_plots(
-        panels,
-        &summary_plot,
-        &summary_shared_y_plot,
-        y_label,
-        interval,
-        columns,
-        mapping,
-    )?;
+    if include_summary {
+        let summary_plot = companion_plot_path(output_plot, "summary");
+        write_summary_metric_plots(
+            panels,
+            &summary_plot,
+            y_label,
+            interval,
+            columns,
+            mapping,
+        )?;
+    }
     Ok(())
 }
 
@@ -100,7 +80,6 @@ fn companion_plot_path(primary: &Path, suffix: &str) -> std::path::PathBuf {
 fn write_summary_metric_plots(
     panels: &[TracePanel],
     output_plot: &Path,
-    shared_y_plot: &Path,
     y_label: &str,
     interval: f64,
     columns: Option<usize>,
@@ -114,16 +93,6 @@ fn write_summary_metric_plots(
         .iter()
         .map(|summary| summary_ylim(summary.as_ref()))
         .collect();
-    let unified_low = panel_ylims
-        .iter()
-        .map(|(low, _)| *low)
-        .fold(f64::INFINITY, f64::min);
-    let unified_high = panel_ylims
-        .iter()
-        .map(|(_, high)| *high)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let shared_ylim = expand_degenerate_ylim(unified_low, unified_high);
-
     write_summary_subplot_grid(
         panels,
         &summaries,
@@ -132,15 +101,6 @@ fn write_summary_metric_plots(
         columns,
         mapping,
         |index| panel_ylims.get(index).copied().unwrap_or((0.0, 1.0)),
-    )?;
-    write_summary_subplot_grid(
-        panels,
-        &summaries,
-        shared_y_plot,
-        y_label,
-        columns,
-        mapping,
-        |_| shared_ylim,
     )?;
     Ok(())
 }

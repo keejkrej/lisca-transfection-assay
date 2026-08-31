@@ -16,13 +16,19 @@ from transfection import core as paths
 from transfection import core as plot_layout
 from transfection.core import (
     SlideMapping,
-    infer_workspace_for_timeseries_dir,
+    infer_workspace_root,
     load_assay_for_workspace,
-    load_slide_channel_labels,
     load_timeseries_csv,
     parse_timeseries_csv_path,
+    require_named_samples,
     resolve_slide_channel,
     trace_color_alpha_from_fluor_name,
+)
+from transfection.core.sample_pack import (
+    concat_sample_traces,
+    publish_sample_traces_xlsx,
+    sample_pack_dir,
+    sample_pack_dirnames,
 )
 
 
@@ -31,52 +37,52 @@ SamplePanel = tuple[int, list[tuple[Path, pd.DataFrame]]]
 SampleSummary = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]
 
 
-def render_plot_timeseries(
-    timeseries_csvs: list[Path],
+def write_sample_timeseries_plots(
+    sample_panels: list[SamplePanel],
+    traces_png: Path,
     *,
     interval: float,
-    output: Path | None,
-    results_dir: Path | None,
     columns: int | None,
-    mapping: SlideMapping,
     slide_channel_names: dict[int, str],
-) -> tuple[Path, ...]:
-    if interval <= 0:
-        raise ValueError(f"--interval must be > 0, got {interval}")
-
-    resolved_csvs = sorted(
-        (csv_path.resolve() for csv_path in timeseries_csvs),
-        key=lambda path: (path.parent.name, path.name),
-    )
-    resolved_output_plot = default_output_plot_path(resolved_csvs, output, results_dir=results_dir)
-    panels = [(csv_path, load_timeseries_csv(csv_path)) for csv_path in resolved_csvs]
-    sample_panels = group_panels_by_slide_channel(panels, mapping)
-
-    written_plots = list(
+) -> list[Path]:
+    written = list(
         write_metric_plots(
             sample_panels,
-            resolved_output_plot,
+            traces_png,
             y_column="corrected",
             y_label="intensity",
             interval=interval,
             columns=columns,
             slide_channel_names=slide_channel_names,
+            include_summary=True,
         )
     )
     if all("area" in df.columns for _, frames in sample_panels for _, df in frames):
-        area_output_plot = metric_output_path(resolved_output_plot, "area")
-        written_plots.extend(
+        written.extend(
             write_metric_plots(
                 sample_panels,
-                area_output_plot,
+                metric_output_path(traces_png, "area"),
                 y_column="area",
                 y_label="mask area",
                 interval=interval,
                 columns=columns,
                 slide_channel_names=slide_channel_names,
+                include_summary=False,
             )
         )
-    return tuple(written_plots)
+    return written
+
+
+def sample_panels_from_traces_table(traces_csv: Path) -> tuple[list[SamplePanel], dict[int, str]]:
+    df = load_timeseries_csv(traces_csv)
+    if "slide_channel" not in df.columns:
+        raise ValueError(f"{traces_csv} is missing slide_channel (expected a published traces table)")
+    labels = labels_from_sample_column(df)
+    panels: list[SamplePanel] = []
+    for slide_channel, group in df.groupby("slide_channel", sort=True):
+        panel_df = group.reset_index(drop=True)
+        panels.append((int(slide_channel), [(traces_csv, panel_df)]))
+    return panels, labels
 
 
 def group_panels_by_slide_channel(
@@ -101,17 +107,16 @@ def write_metric_plots(
     interval: float,
     columns: int | None,
     slide_channel_names: dict[int, str],
+    include_summary: bool = True,
 ) -> tuple[Path, ...]:
+    """Write one-panel traces (or area). Optional mean/median/IQR summary. No shared-y."""
+    panel_columns = 1 if len(sample_panels) <= 1 else columns
     panel_ylims = [
         percentile_ylim(
             np.concatenate([panel_values(df, y_column) for _, df in frames]) if frames else np.array([])
         )
         for _, frames in sample_panels
     ]
-    unified_low = min(lo for lo, _ in panel_ylims)
-    unified_high = max(hi for _, hi in panel_ylims)
-    unified_low, unified_high = expand_degenerate_ylim(unified_low, unified_high)
-    shared_y_plot = unified_y_output_path(output_plot)
     write_subplot_grid(
         sample_panels,
         output_plot,
@@ -119,54 +124,40 @@ def write_metric_plots(
         y_label=y_label,
         interval=interval,
         ylim_fn=lambda i: panel_ylims[i],
-        columns=columns,
+        columns=panel_columns,
         slide_channel_names=slide_channel_names,
     )
-    write_subplot_grid(
-        sample_panels,
-        shared_y_plot,
-        y_column=y_column,
-        y_label=y_label,
-        interval=interval,
-        ylim_fn=lambda _i: (unified_low, unified_high),
-        columns=columns,
-        slide_channel_names=slide_channel_names,
-    )
+    if not include_summary:
+        return (output_plot,)
     summary_plot = summary_output_path(output_plot)
-    summary_shared_y_plot = unified_y_output_path(summary_plot)
     write_summary_metric_plots(
         sample_panels,
         summary_plot,
-        summary_shared_y_plot,
         y_column=y_column,
         y_label=y_label,
         interval=interval,
-        columns=columns,
+        columns=panel_columns,
         slide_channel_names=slide_channel_names,
     )
-    return (output_plot, shared_y_plot, summary_plot, summary_shared_y_plot)
+    return (output_plot, summary_plot)
 
 
 def write_summary_metric_plots(
     sample_panels: list[SamplePanel],
     output_plot: Path,
-    shared_y_plot: Path,
     *,
     y_column: str,
     y_label: str,
     interval: float,
     columns: int | None,
     slide_channel_names: dict[int, str],
-) -> tuple[Path, Path]:
-    """Write mean / median / IQR summary grids (per-panel y and shared y)."""
+) -> Path:
+    """Write a mean / median / IQR summary panel."""
     summaries = [
         sample_summary_curves(frames, y_column=y_column, interval=interval)
         for _, frames in sample_panels
     ]
     panel_ylims = [summary_ylim(summary) for summary in summaries]
-    unified_low = min(lo for lo, _ in panel_ylims)
-    unified_high = max(hi for _, hi in panel_ylims)
-    unified_low, unified_high = expand_degenerate_ylim(unified_low, unified_high)
     write_summary_subplot_grid(
         sample_panels,
         summaries,
@@ -176,16 +167,7 @@ def write_summary_metric_plots(
         columns=columns,
         slide_channel_names=slide_channel_names,
     )
-    write_summary_subplot_grid(
-        sample_panels,
-        summaries,
-        shared_y_plot,
-        y_label=y_label,
-        ylim_fn=lambda _i: (unified_low, unified_high),
-        columns=columns,
-        slide_channel_names=slide_channel_names,
-    )
-    return (output_plot, shared_y_plot)
+    return output_plot
 
 
 def sample_summary_curves(
@@ -483,17 +465,32 @@ def run_plot_timeseries(
     output: Path | None = None,
     columns: int | None = None,
 ) -> tuple[Path, ...]:
-    timeseries_csvs = paths.discover_timeseries_csvs(metrics_dir)
-    results_dir = paths.workspace_results_dir(metrics_dir.parent)
-    workspace = infer_workspace_for_timeseries_dir(metrics_dir)
+    if interval <= 0:
+        raise ValueError(f"--interval must be > 0, got {interval}")
+    workspace = infer_workspace_root(metrics_dir)
     config = load_assay_for_workspace(workspace)
-    slide_channel_names = load_slide_channel_labels(workspace)
-    return render_plot_timeseries(
-        timeseries_csvs,
-        interval=interval,
-        output=output,
-        results_dir=None if output is not None else results_dir,
-        columns=columns,
-        mapping=config.mapping,
-        slide_channel_names=slide_channel_names,
-    )
+    mapping = require_named_samples(config)
+    tables = concat_sample_traces(workspace, mapping)
+    dirnames = sample_pack_dirnames(mapping)
+    names = {sc: entry.sample_name for sc, entry in mapping.items()}
+    xlsx_paths = publish_sample_traces_xlsx(workspace, mapping)
+    written: list[Path] = list(xlsx_paths)
+    for slide_channel, table in tables.items():
+        dirname = dirnames.get(slide_channel)
+        if dirname is None:
+            continue
+        dest = sample_pack_dir(workspace, dirname) / "traces.png"
+        if output is not None and len(tables) == 1:
+            dest = output.resolve()
+        written.extend(
+            write_sample_timeseries_plots(
+                [(slide_channel, [(dest, table)])],
+                dest,
+                interval=interval,
+                columns=1,
+                slide_channel_names=names,
+            )
+        )
+    if not written:
+        raise ValueError("no timeseries panels to plot")
+    return tuple(written)

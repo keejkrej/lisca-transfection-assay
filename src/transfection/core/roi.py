@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,11 +32,29 @@ class PositionIndex:
     rois: tuple[RoiCrop, ...]
 
 
+_POS_DIR = re.compile(r"^Pos(\d+)$")
+
+
 def position_dir(dataset_root: Path, pos: int) -> Path:
     pos_dir = (dataset_root / "roi" / f"Pos{pos}").resolve()
     if not pos_dir.is_dir():
         raise ValueError(f"No ROI directory found for --pos={pos}: {pos_dir}")
     return pos_dir
+
+
+def discover_roi_positions(workspace: Path) -> list[int]:
+    """Return sorted position numbers from ``roi/PosN/`` (sample-agnostic)."""
+    roi_root = (workspace / "roi").resolve()
+    if not roi_root.is_dir():
+        raise ValueError(f"Expected roi/ directory at {roi_root}")
+    positions: list[int] = []
+    for child in roi_root.iterdir():
+        match = _POS_DIR.fullmatch(child.name)
+        if match is not None and child.is_dir():
+            positions.append(int(match.group(1)))
+    if not positions:
+        raise ValueError(f"No roi/PosN directories in {roi_root}")
+    return sorted(positions)
 
 
 def _coerce_optional_int(value: object) -> int | None:

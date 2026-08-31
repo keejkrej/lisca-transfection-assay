@@ -39,7 +39,7 @@ def test_pearson_annotation_includes_r_and_n() -> None:
 
 def test_default_scatter_plot_path() -> None:
     assert (
-        default_scatter_plot_path(Path("results/fit.csv"), None).name
+        default_scatter_plot_path(Path("results/condA/fit.xlsx"), None).name
         == "expression_rate_vs_onset_time.png"
     )
 
