@@ -32,3 +32,6 @@ scripts/layouts/
 
 # Environment
 .env
+
+# ONNX model weights (download via models/*/README.md / scripts/fetch-pattern-seg-model.sh)
+models/**/model.onnx

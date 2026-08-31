@@ -65,7 +65,7 @@ Usage:
   lisca-analyze <command> [options] <workspace>
 
 Commands (same stage names as `transfection`):
-  segment           Masks → mask/PosN/ (Otsu; --backend onnx is not in this crate)
+  segment           Masks → mask/PosN/ (Otsu default; --backend onnx with --features onnx)
   timeseries        Intensity metrics → timeseries/Pos{{n}}/ch{{n}}.csv
   auc               Trapezoidal AUC → results/auc.csv
   fit               Two-exponential kinetic fit → results/fit.csv
@@ -84,7 +84,12 @@ Common options:
    analysis.skipSegment, not a CLI flag)
   --variation-radius N    segment local-variation radius (default: 2)
   --gaussian-sigma F      segment Gaussian sigma (default: 1.0)
-  --backend otsu          segment backend (default: otsu; onnx is not shipped here)
+  --backend otsu|onnx     segment backend (default: otsu; onnx needs --features onnx +
+                          LISCA_PATTERN_SEG_MODEL / --model-dir)
+  --model-dir PATH        ONNX model dir (or LISCA_PATTERN_SEG_MODEL)
+  --image-size N          ONNX input size (default: 128)
+  --threshold F           ONNX sigmoid threshold (default: 0.5)
+  --batch-size N          ONNX frame batch size (default: 32)
   --force, -f             segment: overwrite existing masks
   --columns N             plot grid columns (default: 3)
 

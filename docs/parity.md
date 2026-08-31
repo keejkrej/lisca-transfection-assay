@@ -15,6 +15,8 @@ On a tiny synthetic workspace (`roi/` 4×4×4 T, 2 channels, one ROI):
 | Plot-fit scatter | `results/expression_rate_vs_onset_time.png` | existence only (both CLIs; no pixel diff) |
 
 Plots are not pixel-compared. Crop / ND2 / CZI are out of scope.
+Smart-exclusion and SlimSAM stay in lisca. Optional ONNX pattern U-Net
+(`--features onnx`) is assay-owned; Otsu is the CSV-parity default.
 
 Both CLIs should write the same `results/` PNG basenames. Fit plots:
 
@@ -59,6 +61,8 @@ as a required-style gate:
 3. `.uv/uv run pytest`
 4. `cargo test -p lisca-transfection` — Rust units plus the Python/Rust
    synthetic-workspace comparison above
+5. `bash scripts/fetch-pattern-seg-model.sh` then
+   `cargo test -p lisca-transfection --features onnx` (pattern U-Net from Hugging Face)
 
 Plotting via mplot needs fontconfig/freetype at compile and run time; the
 workflow installs the `-dev` packages on `ubuntu-latest`.
@@ -84,4 +88,6 @@ lisca-transfection = { git = "https://github.com/keejkrej/lisca-transfection-ass
 
 Call `run_segment`, `run_timeseries`, `run_auc`, `run_fit`, `run_pipeline`
 (and `run_plot_*`) with a workspace path. Studio wire id remains
-`transfection`.
+`transfection`. For ONNX smart segment later, depend with
+`features = ["onnx"]` and set `LISCA_PATTERN_SEG_MODEL` (or ship
+`models/single-cell-pattern-unet/onnx/model.onnx`).
