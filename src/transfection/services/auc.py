@@ -7,7 +7,13 @@ import numpy as np
 import pandas as pd
 
 from transfection import core as paths
-from transfection.core import SlideMapping, load_assay_for_workspace, load_timeseries_csv, resolve_slide_channel
+from transfection.core import (
+    SlideMapping,
+    load_assay_for_workspace,
+    load_timeseries_csv,
+    parse_timeseries_csv_path,
+    resolve_slide_channel,
+)
 from transfection.core.export import parallel_xlsx_path, write_csv_and_parallel_xlsx
 from transfection.core.parallel import worker_count
 
@@ -108,6 +114,7 @@ def compute_auc_table(
     for csv_path in timeseries_csvs:
         df = load_timeseries_csv(csv_path)
         slide_channel = resolve_slide_channel(csv_path, mapping)
+        position, _signal_channel = parse_timeseries_csv_path(csv_path)
         group_columns = [column for column in GROUP_COLUMNS if column in df.columns]
         if not group_columns:
             raise ValueError(f"{csv_path} has no supported grouping columns: {GROUP_COLUMNS}")
@@ -116,6 +123,7 @@ def compute_auc_table(
             if not isinstance(group_key, tuple):
                 group_key = (group_key,)
             row = dict(zip(group_columns, group_key, strict=True))
+            row.setdefault("pos", position)
             sorted_df = trace_df.sort_values("t").reset_index(drop=True)
             tasks.append(
                 (

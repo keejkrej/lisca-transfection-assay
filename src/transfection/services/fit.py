@@ -9,7 +9,13 @@ import numpy as np
 import pandas as pd
 
 from transfection import core as paths
-from transfection.core import SlideMapping, load_assay_for_workspace, load_timeseries_csv, resolve_slide_channel
+from transfection.core import (
+    SlideMapping,
+    load_assay_for_workspace,
+    load_timeseries_csv,
+    parse_timeseries_csv_path,
+    resolve_slide_channel,
+)
 from transfection.core.export import parallel_xlsx_path, write_csv_and_parallel_xlsx
 from transfection.core.parallel import worker_count
 from transfection.services import auc
@@ -361,6 +367,7 @@ def compute_fit_table(
     for csv_path in timeseries_csvs:
         df = load_timeseries_csv(csv_path)
         slide_channel = resolve_slide_channel(csv_path, mapping)
+        position, _signal_channel = parse_timeseries_csv_path(csv_path)
         group_columns = [column for column in auc.GROUP_COLUMNS if column in df.columns]
         if not group_columns:
             raise ValueError(f"{csv_path} has no supported grouping columns: {auc.GROUP_COLUMNS}")
@@ -368,10 +375,12 @@ def compute_fit_table(
         for group_key, trace_df in df.groupby(group_columns, sort=True):
             if not isinstance(group_key, tuple):
                 group_key = (group_key,)
+            group_values = {column: int(value) for column, value in zip(group_columns, group_key, strict=True)}
+            group_values.setdefault("pos", position)
             tasks.append(
                 (
                     slide_channel,
-                    {column: int(value) for column, value in zip(group_columns, group_key, strict=True)},
+                    group_values,
                     trace_df["t"].astype(float).tolist(),
                     trace_df["corrected"].astype(float).tolist(),
                     interval,

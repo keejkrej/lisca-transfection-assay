@@ -1,12 +1,33 @@
-# transfection
+# Python / Rust transfection analysis
 
-Transfection **analysis** stages for LiSCA workspaces: segment → timeseries → AUC → kinetic fit + plots.
+This repo is the **home of transfection analysis** for LiSCA: the Python
+`transfection` package **and** the Rust `lisca-transfection` crate, plus
+parity tests that compare them on the same workspace.
 
-Config is **`assay.json`** only (Studio-compatible). Agents or Studio write it; this package does not generate it. Schema and CLI details: **`AGENTS.md`**.
+Config is **`assay.json`** only (Studio-compatible). Agents or Studio write
+it; this package does not generate it. Schema and CLI details: **`AGENTS.md`**.
 
-**ROI crop is not here.** Typical flow: **Aligner** (bbox) → crop with **pyama-v2** or **`lisca-crop`** → analysis with **this package**. Nontechnical users use **Studio** e2e (or Aligner + pyama notebooks while Studio is in dev). This package assumes `roi/` already exists.
+**ROI crop is not here.** Crop is shared across assays and stays in the lisca
+monorepo (`lisca-crop`, ND2/CZI readers, bbox → `roi/`). Typical flow:
+**Aligner** (bbox) → crop with **pyama-v2** or **`lisca-crop`** → analysis
+with **this repo**. This package assumes `roi/` already exists.
 
-## Install
+The lisca product monorepo will depend on **this** git URL for both languages
+(it must not be the other way around — that would cycle):
+
+```toml
+# Cargo
+lisca-transfection = { git = "https://github.com/keejkrej/lisca-transfection-assay" }
+```
+
+```toml
+# pyproject / uv
+transfection = { git = "https://github.com/keejkrej/lisca-transfection-assay" }
+```
+
+Studio wire id: `transfection`.
+
+## Install (Python)
 
 ```bash
 bash install.sh
@@ -15,7 +36,7 @@ bash install.sh
 
 Uses a local `.uv` and `uv sync`.
 
-## Run
+## Run (Python)
 
 ```bash
 .uv/uv run transfection --help
@@ -27,8 +48,29 @@ Uses a local `.uv` and `uv sync`.
 .uv/uv run transfection pipeline WORKSPACE
 ```
 
+## Run (Rust)
+
+Requires **Rust 1.85+** (crate `rust-version`). Plotting via `mplot` needs
+fontconfig/freetype (`libfontconfig1-dev` and `libfreetype6-dev` on Debian).
+
+```bash
+cargo run -p lisca-transfection --bin lisca-analyze -- --help
+cargo run -p lisca-transfection --release --bin lisca-analyze -- pipeline WORKSPACE
+```
+
+The crate’s public API is the same stages, given a workspace path (and
+optional `assay.json`): `run_segment`, `run_timeseries`, `run_auc`,
+`run_fit`, `run_pipeline`, and the `run_plot_*` functions.
+
+## Tests / parity
+
+```bash
+.uv/uv run pytest
+cargo test -p lisca-transfection
+```
+
+`cargo test` includes a synthetic-workspace comparison of Python vs Rust
+timeseries / AUC / fit CSVs (needs `uv`, from `.uv/uv` after `install.sh` or
+on `PATH`). Details: **`docs/parity.md`**.
+
 Full stage list and `assay.json` schema: `AGENTS.md`.
-
-## Relation to LiSCA Studio
-
-This repo is the Python **goal source** for Studio transfection **analysis**. Production runs live in the lisca monorepo (`crates/lisca`, `lisca-analyze`). Studio wire id: `transfection`.

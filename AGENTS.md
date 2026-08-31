@@ -1,6 +1,7 @@
 # lisca-transfection-assay
 
-Agent-facing notes for the **transfection** analysis package (Python goal source for LiSCA Studio’s transfection pipeline).
+Agent-facing notes for **transfection analysis**: Python package (`transfection`) and
+Rust crate (`lisca-transfection`) live in this repo. Crop is **not** here.
 
 ## Fleet
 
@@ -13,17 +14,18 @@ owned by `~/workspace/lisca/CONTEXT.md` — do not add aliases here.
 
 | Layer | Responsibility |
 | --- | --- |
-| **This package** | Transfection **analysis** stages + CLI (`transfection …`) once `roi/` exists |
+| **This repo** | Transfection **analysis** (Python `transfection` + Rust `lisca-transfection`) once `roi/` exists. Parity tests live here. |
 | **`../pyama-v2`** | Python **ROI crop** (+ notebook UX for nontechnical users while Studio is in dev) |
 | **`../lisca` Aligner** | Light align only → `bbox/` / `align/` (no long crop/analysis jobs) |
-| **Studio / `crates/lisca`** | Nontechnical e2e when ready; also `lisca-crop` / `lisca-analyze` for agents |
+| **`../lisca` `lisca-crop`** | Shared crop (ND2/CZI, bbox → `roi/`). Not transfection-specific; do not port here. |
+| **Studio / `crates/lisca`** | Product app. Will depend on **this** git URL for the Python package and the crate. Do not depend on lisca from this crate (git cycle). |
 
 ### Intended usage
 
 1. **Aligner** — short session: register grid, save boxes, quit.
 2. **Hand off the workspace** — agent, or you:
    - **Crop:** pyama-v2 (`run_crop` / `crop.ipynb`) or Rust `lisca-crop` (not this package).
-   - **Analysis:** **this package** (`transfection segment|timeseries|…|pipeline`) — preferred personal/agent path for transfection science.
+   - **Analysis:** **this repo** (`transfection …` or `lisca-analyze …`) — preferred personal/agent path for transfection science.
 3. **Nontechnical:** Studio e2e when ready; until then Aligner + pyama Jupyter (crop then analyze notebooks) so the webapp never holds long jobs.
 
 There is **no** interactive wizard and **no** `slide.json` / compact mapping DSL. Config is `assay.json` only. Agents author it directly.
@@ -49,6 +51,10 @@ uv run transfection fit WORKSPACE [--interval M] [--max-onset-minutes M]
 uv run transfection plot-fit WORKSPACE|results/fit.csv [--interval M]
 uv run transfection pipeline WORKSPACE [--force]   # needs roi/
 uv run transfection check-segment WORKSPACE   # manual mask QA only
+
+# Rust (same stages; crate lisca-transfection)
+cargo run -p lisca-transfection --bin lisca-analyze -- --help
+cargo run -p lisca-transfection --release --bin lisca-analyze -- pipeline WORKSPACE
 ```
 
 Defaults:
@@ -164,11 +170,24 @@ Comma-separated tokens. Ranges are **inclusive** on both ends (Studio semantics)
 - Interactive `*.sh` / `*.ps1` analyze helpers — removed. Install scripts only set up `uv`.
 - CLI `--full-frame` — removed; use `analysis.skipSegment`.
 
-## Parity with lisca
+## Parity (Python + Rust in this repo)
 
-Sibling monorepo `../lisca` ports this science under `crates/lisca` (`lisca-analyze`, Studio). Stage names, CSV columns, and result PNG basenames should stay aligned. Process: `../lisca/docs/analysis/parity.md`.
+Both implementations live here. The on-disk workspace is the API. lisca will later
+depend on this git URL:
 
-When changing stage I/O or science defaults here, update Rust parity tests / `lisca-analyze` in the monorepo.
+```toml
+lisca-transfection = { git = "https://github.com/keejkrej/lisca-transfection-assay" }
+```
+
+```toml
+transfection = { git = "https://github.com/keejkrej/lisca-transfection-assay" }
+```
+
+This crate must **not** depend on `github.com/keejkrej/lisca`. Crop/ND2/CZI stay in
+lisca. How to run comparisons: **`docs/parity.md`**.
+
+Stage names, CSV columns, and result PNG basenames should stay aligned between
+Python and Rust in this repo.
 
 ## Dev
 
@@ -176,4 +195,5 @@ When changing stage I/O or science defaults here, update Rust parity tests / `li
 bash install.sh          # or install.ps1 on Windows — uv + sync only
 uv run transfection --help
 uv run pytest
+cargo test -p lisca-transfection
 ```

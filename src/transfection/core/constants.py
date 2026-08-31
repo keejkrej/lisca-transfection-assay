@@ -6,7 +6,7 @@ import matplotlib as mpl
 
 HELP = (
     "Transfection analysis stages for LiSCA workspaces (assay.json + roi/). "
-    "CLI + agent driven; parity goal source for Studio (type transfection) in crates/lisca."
+    "Python CLI and Rust crate live in this repo; Studio wire id is transfection."
 )
 PROG_NAME = "transfection"
 TIMESERIES_DIRNAME = "timeseries"

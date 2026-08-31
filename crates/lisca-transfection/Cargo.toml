@@ -1,0 +1,38 @@
+[package]
+name = "lisca-transfection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Transfection analysis (segment → timeseries → AUC → kinetic fit) for LiSCA workspaces."
+readme = "../../README.md"
+rust-version = "1.85"
+
+[lib]
+name = "lisca_transfection"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lisca-analyze"
+path = "src/bin/lisca-analyze.rs"
+
+[dependencies]
+csv = "1.3"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+imageproc = { version = "0.25", default-features = false }
+mplot = { git = "https://github.com/keejkrej/mplot-rs" }
+ndarray = { version = "0.16", features = ["std"] }
+ndarray-ndimage = "0.5"
+ndarray-stats = "0.6"
+noisy_float = "0.2"
+rayon = "1.10"
+rust_xlsxwriter = "0.90"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tiff = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+csv = "1.3"
+serde_json = "1"
+tiff = "0.10"
