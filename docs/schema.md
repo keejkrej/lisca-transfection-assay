@@ -9,8 +9,9 @@ must write these headers in this order.
 Times (`t`, `onset_time`) and lifetimes are stored in **minutes**. Lifetimes
 are half-lives \(\ln(2)/\mathrm{rate}\). Do not convert on disk.
 
-Site boxes are owned by lisca: `bbox/Pos{n}.csv` is `roi, x, y, w, h`. This
-package does not write bbox tables.
+Site boxes are owned by lisca: `bbox/Pos{n}.csv` is `roi, x, y, w, h`. No
+`crop` alias. Old crop-header files are unsupported. This package does not
+write bbox tables.
 
 ## `analysis/Pos{n}/`
 
