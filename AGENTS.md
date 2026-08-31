@@ -45,13 +45,14 @@ Stored kinetic columns (minutes; do not convert on disk):
 | --- | --- |
 | `onset_time` | \(t_0\), minutes after acquisition start |
 | `expression_rate` | \(m_0 k_{TL}\) |
-| `protein_degradation_rate` | \(\beta\), per minute |
-| `mrna_degradation_rate` | \(\delta\), per minute |
 | `protein_lifetime` | \(\tau_\mathrm{EGFP} = \ln(2)/\beta\) (half-life, minutes) |
 | `mrna_lifetime` | \(\tau_\mathrm{mRNA} = \ln(2)/\delta\) (half-life, minutes) |
-| `expression_amplitude` | \(m_0 k_{TL}/(\delta-\beta)\) (internal coeff) |
 | `baseline_intensity` | additive baseline |
 | `auc` | trace-integrated transient protein output |
+
+Internal optimizer / `traces_fit` reconstruction (not written to CSV/XLSX):
+\(\beta = \ln(2)/\texttt{protein_lifetime}\), \(\delta = \ln(2)/\texttt{mrna_lifetime}\),
+amplitude \(= \texttt{expression_rate}/(\delta-\beta)\).
 
 PNG axes convert onset/lifetimes minutes → hours for display only.
 
@@ -123,8 +124,8 @@ plot-timeseries → plot-auc → plot-fit
 | `bbox/PosN.csv` | Site boxes from Aligner (input to pyama / `lisca-crop`) |
 | `roi/PosN/` | Cropped ROI stacks + slim `index.json` (from pyama / `lisca-crop` / Studio). Always `axisOrder: "TCZYX"`; keep `zCount` (`1` if no z-stack). Stack shape is derived as `[timeCount, channelCount, zCount, bbox.h, bbox.w]`. Optional `timeIndices` lists source acquisition frame indices per T plane; timeseries CSV `t` uses these, then `t * interval` is real minutes. |
 | `mask/PosN/` | Segmentation masks (written by `segment`) |
-| `analysis/` | Pipeline intermediates, **CSV only**. `Pos{N}/ch{C}.csv` traces (`roi,t,area,background,sum,corrected`); `Pos{N}/auc.csv`; `Pos{N}/fit.csv`. No xlsx. Analysis stages do not require `samples[].name`. |
-| `results/<sample>/` | User-facing packs (filesystem-safe `samples[].name`; prefix `slideChannel` if names collide). XLSX: `traces.xlsx` / `auc.xlsx` / `fit.xlsx`. PNGs: `traces.png`, `traces_shared_y.png`, `traces_summary.png`, `traces_summary_shared_y.png`, `area.png`, `area_shared_y.png`, `traces_fit.png`, `traces_fit_shared_y.png`, `expression_rate_vs_onset_time.png`, `expression_rate_vs_mrna_lifetime.png` (no shared-y). Shared-y companions use one ylim across all samples. No `*_log` or `area_summary`. Missing `samples[]` fails here, not during timeseries. |
+| `analysis/` | Pipeline intermediates, **CSV only**. `Pos{N}/ch{C}.csv` traces (`roi,t,area,background,sum,corrected`); `Pos{N}/auc.csv` (`roi,auc`); `Pos{N}/fit.csv` (`roi,baseline_intensity,protein_lifetime,mrna_lifetime,onset_time,expression_rate,success`). `channel` only when that position has more than one signal. No xlsx. Analysis stages do not require `samples[].name`. |
+| `results/<sample>/` | User-facing packs (filesystem-safe `samples[].name`; prefix `slideChannel` if names collide). XLSX: `traces.xlsx` (`pos,roi,t,area,background,sum,corrected`) / `auc.xlsx` (`pos,roi,auc`) / `fit.xlsx` (`pos,roi,baseline_intensity,protein_lifetime,mrna_lifetime,onset_time,expression_rate,success`). `channel` only when multi-signal. No `slide_channel` or `sample` on per-sample XLSX (folder is the identity). PNGs: `traces.png`, `traces_shared_y.png`, `traces_summary.png`, `traces_summary_shared_y.png`, `area.png`, `area_shared_y.png`, `traces_fit.png`, `traces_fit_shared_y.png`, `expression_rate_vs_onset_time.png`, `expression_rate_vs_mrna_lifetime.png` (no shared-y). Shared-y companions use one ylim across all samples. No `*_log` or `area_summary`. Missing `samples[]` fails here, not during timeseries. |
 | `results/*.png` | Cross-sample boxplots (samples on x), written once: `auc.png`, `expression_rate.png`, `onset_time.png`, `baseline_intensity.png`, `protein_lifetime.png`, `mrna_lifetime.png`. |
 
 Frozen on-disk tree (csv under `analysis/` only; xlsx + png under `results/`):

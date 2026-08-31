@@ -15,9 +15,7 @@ use crate::timeseries::{
     resolve_slide_channel,
 };
 
-pub const TRACE_HEADERS: [&str; 9] = [
-    "slide_channel",
-    "sample",
+pub const TRACE_HEADERS: [&str; 7] = [
     "pos",
     "roi",
     "t",
@@ -26,9 +24,7 @@ pub const TRACE_HEADERS: [&str; 9] = [
     "sum",
     "corrected",
 ];
-pub const TRACE_HEADERS_WITH_CHANNEL: [&str; 10] = [
-    "slide_channel",
-    "sample",
+pub const TRACE_HEADERS_WITH_CHANNEL: [&str; 8] = [
     "pos",
     "channel",
     "roi",
@@ -37,6 +33,29 @@ pub const TRACE_HEADERS_WITH_CHANNEL: [&str; 10] = [
     "background",
     "sum",
     "corrected",
+];
+const AUC_XLSX_HEADERS: [&str; 3] = ["pos", "roi", "auc"];
+const AUC_XLSX_HEADERS_WITH_CHANNEL: [&str; 4] = ["pos", "channel", "roi", "auc"];
+const FIT_XLSX_HEADERS: [&str; 8] = [
+    "pos",
+    "roi",
+    "baseline_intensity",
+    "protein_lifetime",
+    "mrna_lifetime",
+    "onset_time",
+    "expression_rate",
+    "success",
+];
+const FIT_XLSX_HEADERS_WITH_CHANNEL: [&str; 9] = [
+    "pos",
+    "channel",
+    "roi",
+    "baseline_intensity",
+    "protein_lifetime",
+    "mrna_lifetime",
+    "onset_time",
+    "expression_rate",
+    "success",
 ];
 
 pub fn filesystem_safe_sample_name(name: &str) -> String {
@@ -114,9 +133,8 @@ pub fn publish_sample_traces_xlsx(
     let named = require_named_samples(mapping)?;
     let csvs = discover_timeseries_csvs(&workspace.join("analysis"))?;
     let dirnames = sample_pack_dirnames(&named)?;
-    let names = sample_display_names(&named);
     let mut frames: BTreeMap<u32, Vec<Vec<String>>> = BTreeMap::new();
-    let mut multi_channel = false;
+    let multi_channel = named.values().any(|entry| entry.signal.len() > 1);
     for csv_path in csvs {
         let Ok(slide_channel) = resolve_slide_channel(&csv_path, &named) else {
             continue;
@@ -128,13 +146,6 @@ pub fn publish_sample_traces_xlsx(
         if !entry.signal.contains(&signal) {
             continue;
         }
-        if entry.signal.len() > 1 {
-            multi_channel = true;
-        }
-        let sample = names
-            .get(&slide_channel)
-            .cloned()
-            .unwrap_or_else(|| format!("slide channel {slide_channel}"));
         let (headers, rows) = read_csv(&csv_path)?;
         let roi_index = column_index(&headers, "roi").ok_or("missing roi")?;
         let t_index = column_index(&headers, "t").ok_or("missing t")?;
@@ -147,7 +158,7 @@ pub fn publish_sample_traces_xlsx(
             let pos = pos_index
                 .and_then(|index| parse_f64(&row[index]).map(|value| value as i64))
                 .unwrap_or(position as i64);
-            let mut out = vec![slide_channel.to_string(), sample.clone(), pos.to_string()];
+            let mut out = vec![pos.to_string()];
             if multi_channel {
                 out.push(signal.to_string());
             }
@@ -174,17 +185,21 @@ pub fn publish_sample_traces_xlsx(
             continue;
         };
         rows.sort_by(|left, right| {
-            let left_key = (
-                left[0].parse::<u32>().unwrap_or(0),
-                left[2].parse::<i64>().unwrap_or(0),
-                left[3].parse::<i64>().unwrap_or(0),
-            );
-            let right_key = (
-                right[0].parse::<u32>().unwrap_or(0),
-                right[2].parse::<i64>().unwrap_or(0),
-                right[3].parse::<i64>().unwrap_or(0),
-            );
-            left_key.cmp(&right_key)
+            let pos = |row: &[String]| row[0].parse::<i64>().unwrap_or(0);
+            let channel_or_roi = |row: &[String]| row[1].parse::<i64>().unwrap_or(0);
+            let roi_or_t = |row: &[String]| row[2].parse::<i64>().unwrap_or(0);
+            let t = |row: &[String]| {
+                if multi_channel {
+                    row[3].parse::<i64>().unwrap_or(0)
+                } else {
+                    0
+                }
+            };
+            pos(left)
+                .cmp(&pos(right))
+                .then(channel_or_roi(left).cmp(&channel_or_roi(right)))
+                .then(roi_or_t(left).cmp(&roi_or_t(right)))
+                .then(t(left).cmp(&t(right)))
         });
         let output = sample_table_xlsx_path(workspace, dirname, "traces");
         write_xlsx_only(&output, headers, &rows)?;
@@ -269,20 +284,60 @@ pub fn publish_sample_tables_xlsx(
     let named = require_named_samples(mapping)?;
     let dirnames = sample_pack_dirnames(&named)?;
     let (headers, grouped) = concat_kind_rows(workspace, mapping, kind)?;
-    let header_refs: Vec<&str> = headers.iter().map(String::as_str).collect();
+    let include_channel = headers.iter().any(|header| header == "channel");
+    let preferred = xlsx_headers_for_kind(kind, include_channel);
     let mut written = Vec::new();
     for (channel, rows) in grouped {
         let Some(dirname) = dirnames.get(&channel) else {
             continue;
         };
+        let (out_headers, out_rows) = project_table_columns(&headers, &rows, preferred)?;
+        let header_refs: Vec<&str> = out_headers.iter().map(String::as_str).collect();
         let output = sample_table_xlsx_path(workspace, dirname, kind);
-        write_xlsx_only(&output, &header_refs, &rows)?;
+        write_xlsx_only(&output, &header_refs, &out_rows)?;
         written.push(output);
     }
     if written.is_empty() {
         return Err(format!("No analysis {kind} rows matched named samples[]"));
     }
     Ok(written)
+}
+
+fn xlsx_headers_for_kind(kind: &str, include_channel: bool) -> &'static [&'static str] {
+    match (kind, include_channel) {
+        ("auc", false) => &AUC_XLSX_HEADERS,
+        ("auc", true) => &AUC_XLSX_HEADERS_WITH_CHANNEL,
+        ("fit", false) => &FIT_XLSX_HEADERS,
+        ("fit", true) => &FIT_XLSX_HEADERS_WITH_CHANNEL,
+        ("traces", false) => &TRACE_HEADERS,
+        ("traces", true) => &TRACE_HEADERS_WITH_CHANNEL,
+        _ => &[],
+    }
+}
+
+fn project_table_columns(
+    headers: &[String],
+    rows: &[Vec<String>],
+    preferred: &[&str],
+) -> Result<(Vec<String>, Vec<Vec<String>>), String> {
+    let indices: Vec<usize> = preferred
+        .iter()
+        .filter_map(|name| column_index(headers, name))
+        .collect();
+    if indices.is_empty() {
+        return Err("xlsx table has no exportable columns".to_string());
+    }
+    let out_headers: Vec<String> = indices.iter().map(|index| headers[*index].clone()).collect();
+    let out_rows = rows
+        .iter()
+        .map(|row| {
+            indices
+                .iter()
+                .map(|index| row.get(*index).cloned().unwrap_or_default())
+                .collect()
+        })
+        .collect();
+    Ok((out_headers, out_rows))
 }
 
 /// Kept for analysis-stage tests; analysis files are CSV-only.

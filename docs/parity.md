@@ -56,12 +56,14 @@ CSV / table contract:
   `slide_channel`; those are joined later from the path + `assay.json`).
 - Analysis AUC / fit: `roi,…` (`channel` only when that Pos has multiple
   signal CSVs). `pos` is the folder name. Fit columns:
-  `baseline_intensity`, `protein_degradation_rate`, `protein_lifetime`,
-  `mrna_degradation_rate`, `mrna_lifetime`, `onset_time`,
-  `expression_amplitude`, `expression_rate`, `success`. Lifetimes are
-  half-lives \(\ln(2)/\mathrm{rate}\) in minutes. No `*_decay_rate` aliases.
-- Results XLSX: concat by named `samples[]`, with `slide_channel`, `sample`,
-  and `pos` prefixed.
+  `baseline_intensity`, `protein_lifetime`, `mrna_lifetime`, `onset_time`,
+  `expression_rate`, `success`. Lifetimes are half-lives
+  \(\ln(2)/\mathrm{rate}\) in minutes. Rates \(\beta,\delta\) and
+  `expression_amplitude` are reconstructed at plot time and are **not**
+  written. No `*_decay_rate` aliases.
+- Results XLSX: concat by named `samples[]`, with `pos` prefixed. No
+  `slide_channel` or `sample` (the pack folder is the identity). Traces keep
+  `background` and `sum` for QC.
 
 ## How to run
 

@@ -14,9 +14,19 @@ from transfection.services.fit import (
 )
 
 
-def test_output_columns_use_degradation_rate_not_decay() -> None:
-    assert "protein_degradation_rate" in OUTPUT_COLUMNS
-    assert "mrna_degradation_rate" in OUTPUT_COLUMNS
+def test_output_columns_are_paper_observables() -> None:
+    assert OUTPUT_COLUMNS == (
+        "roi",
+        "baseline_intensity",
+        "protein_lifetime",
+        "mrna_lifetime",
+        "onset_time",
+        "expression_rate",
+        "success",
+    )
+    assert "protein_degradation_rate" not in OUTPUT_COLUMNS
+    assert "mrna_degradation_rate" not in OUTPUT_COLUMNS
+    assert "expression_amplitude" not in OUTPUT_COLUMNS
     assert "protein_decay_rate" not in OUTPUT_COLUMNS
     assert "mrna_decay_rate" not in OUTPUT_COLUMNS
     assert not any("decay_rate" in name for name in OUTPUT_COLUMNS)
@@ -41,8 +51,8 @@ def test_derive_parameters_uses_half_life_lifetimes() -> None:
     assert derived["protein_lifetime"] == pytest.approx(LN2 / 0.1)
     assert derived["mrna_lifetime"] == pytest.approx(LN2 / 0.5)
     assert derived["expression_rate"] == pytest.approx(100.0 * (0.5 - 0.1))
-    assert derived["protein_degradation_rate"] == 0.1
-    assert derived["mrna_degradation_rate"] == 0.5
+    assert derived["baseline_intensity"] == 10.0
+    assert derived["onset_time"] == 20.0
     assert "protein_decay_rate" not in derived
     assert "mrna_decay_rate" not in derived
 
@@ -57,8 +67,11 @@ def test_auc_from_fit_half_lives_matches_paper_eq4() -> None:
     ) == pytest.approx(expected)
 
 
-def test_fit_table_columns_exclude_decay_aliases() -> None:
+def test_fit_table_columns_exclude_dropped_names() -> None:
     df = pd.DataFrame(columns=OUTPUT_COLUMNS)
     assert list(df.columns) == list(OUTPUT_COLUMNS)
+    assert "protein_degradation_rate" not in df.columns
+    assert "mrna_degradation_rate" not in df.columns
+    assert "expression_amplitude" not in df.columns
     assert "protein_decay_rate" not in df.columns
     assert "mrna_decay_rate" not in df.columns

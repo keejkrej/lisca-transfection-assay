@@ -6,7 +6,10 @@ use mplot::prelude::{
     TextStyle, TickFormat, TickLabelRotation,
 };
 
-use crate::array::{fitted_trace_value, half_life_minutes, KineticFitCoeffs};
+use crate::array::{
+    degradation_rate_per_minute, expression_amplitude_from_observables, fitted_trace_value,
+    half_life_minutes, KineticFitCoeffs,
+};
 use crate::csv_io::{column_index, parse_f64, read_csv, slide_channel_column_index};
 use crate::plot::{
     boxplot_tick_label, boxplot_x_axis_label, companion_plot_path, figure_builder_joint,
@@ -162,9 +165,35 @@ fn load_fit_from_headers(
             .unwrap_or(0);
         let roi = parse_f64(&row[roi_index]).ok_or("invalid roi")? as i64;
         let success = row[success_index].trim().eq_ignore_ascii_case("true");
-        let protein_degradation_rate = read_opt(row, "protein_degradation_rate");
-        let mrna_degradation_rate = read_opt(row, "mrna_degradation_rate");
-        let expression_amplitude = read_opt(row, "expression_amplitude");
+        let protein_rate_on_disk = read_opt(row, "protein_degradation_rate");
+        let mrna_rate_on_disk = read_opt(row, "mrna_degradation_rate");
+        let amplitude_on_disk = read_opt(row, "expression_amplitude");
+        let protein_lifetime = read_opt(row, "protein_lifetime")
+            .or_else(|| protein_rate_on_disk.map(half_life_minutes));
+        let mrna_lifetime =
+            read_opt(row, "mrna_lifetime").or_else(|| mrna_rate_on_disk.map(half_life_minutes));
+        let protein_degradation_rate = protein_rate_on_disk
+            .or_else(|| protein_lifetime.map(degradation_rate_per_minute));
+        let mrna_degradation_rate =
+            mrna_rate_on_disk.or_else(|| mrna_lifetime.map(degradation_rate_per_minute));
+        let expression_rate = read_opt(row, "expression_rate").or(match (
+            amplitude_on_disk,
+            mrna_degradation_rate,
+            protein_degradation_rate,
+        ) {
+            (Some(amp), Some(mrna), Some(protein)) => Some(amp * (mrna - protein)),
+            _ => None,
+        });
+        let expression_amplitude = amplitude_on_disk.or(match (
+            expression_rate,
+            mrna_lifetime,
+            protein_lifetime,
+        ) {
+            (Some(rate), Some(mrna), Some(protein)) => {
+                Some(expression_amplitude_from_observables(rate, mrna, protein))
+            }
+            _ => None,
+        });
         parsed.push(FitPlotRow {
             slide_channel,
             pos,
@@ -175,20 +204,9 @@ fn load_fit_from_headers(
             mrna_degradation_rate,
             onset_time: read_opt(row, "onset_time"),
             expression_amplitude,
-            protein_lifetime: read_opt(row, "protein_lifetime")
-                .or_else(|| protein_degradation_rate.map(half_life_minutes)),
-            mrna_lifetime: read_opt(row, "mrna_lifetime")
-                .or_else(|| mrna_degradation_rate.map(half_life_minutes)),
-            expression_rate: read_opt(row, "expression_rate").or(
-                match (
-                    expression_amplitude,
-                    mrna_degradation_rate,
-                    protein_degradation_rate,
-                ) {
-                    (Some(amp), Some(mrna), Some(protein)) => Some(amp * (mrna - protein)),
-                    _ => None,
-                },
-            ),
+            protein_lifetime,
+            mrna_lifetime,
+            expression_rate,
         });
     }
     if parsed.is_empty() {
@@ -635,12 +653,28 @@ fn save_fitted_trace_figure(
 
 impl FitPlotRow {
     fn kinetic_coeffs(&self) -> KineticFitCoeffs {
+        let protein_lifetime = self.protein_lifetime;
+        let mrna_lifetime = self.mrna_lifetime;
+        let protein_degradation_rate = self.protein_degradation_rate.or_else(|| {
+            protein_lifetime.map(degradation_rate_per_minute)
+        });
+        let mrna_degradation_rate = self
+            .mrna_degradation_rate
+            .or_else(|| mrna_lifetime.map(degradation_rate_per_minute));
+        let expression_amplitude = self.expression_amplitude.or_else(|| {
+            match (self.expression_rate, mrna_lifetime, protein_lifetime) {
+                (Some(rate), Some(mrna), Some(protein)) => {
+                    Some(expression_amplitude_from_observables(rate, mrna, protein))
+                }
+                _ => None,
+            }
+        });
         KineticFitCoeffs {
             baseline_intensity: self.baseline_intensity.unwrap_or(0.0),
-            protein_degradation_rate: self.protein_degradation_rate.unwrap_or(0.0),
-            mrna_degradation_rate: self.mrna_degradation_rate.unwrap_or(0.0),
+            protein_degradation_rate: protein_degradation_rate.unwrap_or(0.0),
+            mrna_degradation_rate: mrna_degradation_rate.unwrap_or(0.0),
             onset_time: self.onset_time.unwrap_or(0.0),
-            expression_amplitude: self.expression_amplitude.unwrap_or(0.0),
+            expression_amplitude: expression_amplitude.unwrap_or(0.0),
         }
     }
 }

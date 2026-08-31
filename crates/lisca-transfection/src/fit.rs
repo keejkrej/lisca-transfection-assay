@@ -361,12 +361,11 @@ struct FitCsvRow {
     channel: u32,
     roi: i64,
     baseline_intensity: Option<f64>,
+    // Internal: used to pool β across traces. Not written to CSV/XLSX.
     protein_degradation_rate: Option<f64>,
     protein_lifetime: Option<f64>,
-    mrna_degradation_rate: Option<f64>,
     mrna_lifetime: Option<f64>,
     onset_time: Option<f64>,
-    expression_amplitude: Option<f64>,
     expression_rate: Option<f64>,
     success: bool,
 }
@@ -379,10 +378,8 @@ fn successful_fit_row(pos: i64, channel: u32, roi: i64, result: KineticFitCoeffs
         baseline_intensity: Some(result.baseline_intensity),
         protein_degradation_rate: Some(result.protein_degradation_rate),
         protein_lifetime: Some(half_life_minutes(result.protein_degradation_rate)),
-        mrna_degradation_rate: Some(result.mrna_degradation_rate),
         mrna_lifetime: Some(half_life_minutes(result.mrna_degradation_rate)),
         onset_time: Some(result.onset_time),
-        expression_amplitude: Some(result.expression_amplitude),
         expression_rate: Some(
             result.expression_amplitude
                 * (result.mrna_degradation_rate - result.protein_degradation_rate),
@@ -399,10 +396,8 @@ fn failed_fit_row(pos: i64, channel: u32, roi: i64) -> FitCsvRow {
         baseline_intensity: None,
         protein_degradation_rate: None,
         protein_lifetime: None,
-        mrna_degradation_rate: None,
         mrna_lifetime: None,
         onset_time: None,
-        expression_amplitude: None,
         expression_rate: None,
         success: false,
     }
@@ -445,12 +440,9 @@ fn fit_csv_records(rows: &[&FitCsvRow], include_channel: bool) -> (Vec<String>, 
         [
             "roi",
             "baseline_intensity",
-            "protein_degradation_rate",
             "protein_lifetime",
-            "mrna_degradation_rate",
             "mrna_lifetime",
             "onset_time",
-            "expression_amplitude",
             "expression_rate",
             "success",
         ]
@@ -467,12 +459,9 @@ fn fit_csv_records(rows: &[&FitCsvRow], include_channel: bool) -> (Vec<String>, 
             values.extend([
                 row.roi.to_string(),
                 format_optional(row.baseline_intensity),
-                format_optional(row.protein_degradation_rate),
                 format_optional(row.protein_lifetime),
-                format_optional(row.mrna_degradation_rate),
                 format_optional(row.mrna_lifetime),
                 format_optional(row.onset_time),
-                format_optional(row.expression_amplitude),
                 format_optional(row.expression_rate),
                 if row.success { "true" } else { "false" }.to_string(),
             ]);

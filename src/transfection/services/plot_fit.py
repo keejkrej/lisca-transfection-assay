@@ -29,6 +29,8 @@ from transfection.core.kinetics import (
     MRNA_LIFETIME_AXIS_LABEL,
     ONSET_TIME_AXIS_LABEL,
     PROTEIN_LIFETIME_AXIS_LABEL,
+    degradation_rate_per_minute,
+    expression_amplitude_from_observables,
     half_life_minutes,
 )
 from transfection.core.sample_pack import (
@@ -48,6 +50,15 @@ PLOTTED_PARAMETERS = (
     ("mrna_lifetime", MRNA_LIFETIME_AXIS_LABEL, True),
     ("onset_time", ONSET_TIME_AXIS_LABEL, True),
     ("expression_rate", EXPRESSION_RATE_AXIS_LABEL, False),
+)
+# Paper observables stored on disk. traces_fit reconstructs β, δ, and
+# amplitude at plot time and does not require those columns to exist.
+FIT_TABLE_PARAMETERS = (
+    "baseline_intensity",
+    "protein_lifetime",
+    "mrna_lifetime",
+    "onset_time",
+    "expression_rate",
 )
 FIT_TRACE_PARAMETERS = (
     "baseline_intensity",
@@ -170,11 +181,6 @@ def run_plot_fit(
 
 
 def load_fit_table(df: pd.DataFrame) -> pd.DataFrame:
-    required = {"roi", "success", *FIT_TRACE_PARAMETERS}
-    missing = required.difference(df.columns)
-    if missing:
-        raise ValueError(f"fit table is missing required columns: {sorted(missing)}")
-
     keep_columns = [column for column in df.columns]
     out = df.loc[:, keep_columns].copy()
     if "slide_channel" in out.columns:
@@ -187,18 +193,69 @@ def load_fit_table(df: pd.DataFrame) -> pd.DataFrame:
         out["pos"] = pd.to_numeric(out["pos"], errors="coerce").astype("Int64")
     out["roi"] = pd.to_numeric(out["roi"], errors="coerce").astype("Int64")
     out["success"] = out["success"].astype(str).str.lower().eq("true")
-    for parameter in FIT_TRACE_PARAMETERS:
-        out[parameter] = pd.to_numeric(out[parameter], errors="coerce")
-    if "protein_lifetime" not in out.columns:
-        out["protein_lifetime"] = half_life_minutes_series(out["protein_degradation_rate"])
-    if "mrna_lifetime" not in out.columns:
-        out["mrna_lifetime"] = half_life_minutes_series(out["mrna_degradation_rate"])
-    if "expression_rate" not in out.columns:
-        out["expression_rate"] = out["expression_amplitude"] * (
-            out["mrna_degradation_rate"] - out["protein_degradation_rate"]
-        )
+    _ensure_fit_model_columns(out)
+    required = {"roi", "success", *FIT_TABLE_PARAMETERS}
+    missing = required.difference(out.columns)
+    if missing:
+        raise ValueError(f"fit table is missing required columns: {sorted(missing)}")
+    for parameter in (*FIT_TABLE_PARAMETERS, *FIT_TRACE_PARAMETERS):
+        if parameter in out.columns:
+            out[parameter] = pd.to_numeric(out[parameter], errors="coerce")
     sort_columns = [column for column in ("slide_channel", "pos", "roi") if column in out.columns]
     return out.sort_values(sort_columns).reset_index(drop=True)
+
+
+def _series_or_none(df: pd.DataFrame, name: str) -> pd.Series | None:
+    if name not in df.columns:
+        return None
+    return pd.to_numeric(df[name], errors="coerce")
+
+
+def _ensure_fit_model_columns(df: pd.DataFrame) -> None:
+    """Fill missing lifetimes, rates, amplitude, and expression_rate in place.
+
+    Written tables store paper observables. traces_fit needs β, δ, and
+    amplitude, which are recovered as ln(2)/lifetime and
+    expression_rate / (δ − β). If a dropped column is present (older files),
+    derive the stored observable from it instead of requiring both.
+    """
+    protein_lifetime = _series_or_none(df, "protein_lifetime")
+    mrna_lifetime = _series_or_none(df, "mrna_lifetime")
+    protein_rate = _series_or_none(df, "protein_degradation_rate")
+    mrna_rate = _series_or_none(df, "mrna_degradation_rate")
+    amplitude = _series_or_none(df, "expression_amplitude")
+    expression_rate = _series_or_none(df, "expression_rate")
+
+    if protein_lifetime is None and protein_rate is not None:
+        df["protein_lifetime"] = half_life_minutes_series(protein_rate)
+        protein_lifetime = df["protein_lifetime"]
+    if protein_rate is None and protein_lifetime is not None:
+        df["protein_degradation_rate"] = protein_lifetime.map(
+            lambda value: degradation_rate_per_minute(float(value)) if pd.notna(value) else np.nan
+        )
+        protein_rate = df["protein_degradation_rate"]
+
+    if mrna_lifetime is None and mrna_rate is not None:
+        df["mrna_lifetime"] = half_life_minutes_series(mrna_rate)
+        mrna_lifetime = df["mrna_lifetime"]
+    if mrna_rate is None and mrna_lifetime is not None:
+        df["mrna_degradation_rate"] = mrna_lifetime.map(
+            lambda value: degradation_rate_per_minute(float(value)) if pd.notna(value) else np.nan
+        )
+        mrna_rate = df["mrna_degradation_rate"]
+
+    if expression_rate is None and amplitude is not None and mrna_rate is not None and protein_rate is not None:
+        df["expression_rate"] = amplitude * (mrna_rate - protein_rate)
+        expression_rate = df["expression_rate"]
+    if amplitude is None and expression_rate is not None and mrna_lifetime is not None and protein_lifetime is not None:
+        df["expression_amplitude"] = [
+            (
+                expression_amplitude_from_observables(float(rate), float(mrna), float(protein))
+                if pd.notna(rate) and pd.notna(mrna) and pd.notna(protein)
+                else np.nan
+            )
+            for rate, mrna, protein in zip(expression_rate, mrna_lifetime, protein_lifetime, strict=True)
+        ]
 
 
 def load_fit_csv(fit_csv: Path) -> pd.DataFrame:
@@ -528,16 +585,43 @@ def write_expression_rate_vs_mrna_lifetime_scatter(
 
 def fitted_trace_values(times_minutes: np.ndarray, fit_row: pd.Series) -> np.ndarray:
     baseline_intensity = float(fit_row["baseline_intensity"])
-    protein_degradation_rate = float(fit_row["protein_degradation_rate"])
-    mrna_degradation_rate = float(fit_row["mrna_degradation_rate"])
     onset_time = float(fit_row["onset_time"])
-    expression_amplitude = float(fit_row["expression_amplitude"])
+    protein_degradation_rate, mrna_degradation_rate, expression_amplitude = _kinetic_model_terms(
+        fit_row
+    )
     dt = np.maximum(times_minutes - onset_time, 0.0)
     predicted = baseline_intensity + expression_amplitude * (
         np.exp(-protein_degradation_rate * dt) - np.exp(-mrna_degradation_rate * dt)
     )
     predicted[times_minutes < onset_time] = baseline_intensity
     return predicted
+
+
+def _optional_float(fit_row: pd.Series, name: str) -> float | None:
+    if name not in fit_row.index or pd.isna(fit_row[name]):
+        return None
+    value = float(fit_row[name])
+    return value if math.isfinite(value) else None
+
+
+def _kinetic_model_terms(fit_row: pd.Series) -> tuple[float, float, float]:
+    protein_lifetime = _optional_float(fit_row, "protein_lifetime")
+    mrna_lifetime = _optional_float(fit_row, "mrna_lifetime")
+    protein_degradation_rate = _optional_float(fit_row, "protein_degradation_rate")
+    mrna_degradation_rate = _optional_float(fit_row, "mrna_degradation_rate")
+    expression_amplitude = _optional_float(fit_row, "expression_amplitude")
+    expression_rate = _optional_float(fit_row, "expression_rate")
+    if protein_degradation_rate is None and protein_lifetime is not None:
+        protein_degradation_rate = degradation_rate_per_minute(protein_lifetime)
+    if mrna_degradation_rate is None and mrna_lifetime is not None:
+        mrna_degradation_rate = degradation_rate_per_minute(mrna_lifetime)
+    if expression_amplitude is None and expression_rate is not None and protein_lifetime is not None and mrna_lifetime is not None:
+        expression_amplitude = expression_amplitude_from_observables(
+            expression_rate, mrna_lifetime, protein_lifetime
+        )
+    if protein_degradation_rate is None or mrna_degradation_rate is None or expression_amplitude is None:
+        raise ValueError("fit row is missing lifetimes or expression_rate needed to reconstruct the kinetic curve")
+    return protein_degradation_rate, mrna_degradation_rate, expression_amplitude
 
 
 def write_fitted_trace_plots(

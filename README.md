@@ -112,4 +112,7 @@ There is no `timeseries/` folder, no combined results tables, and no csv under
 across samples. Joint scatters use `onset_time` / `mrna_lifetime` vs
 `expression_rate` (log-log). Onset/lifetime PNG axes are hours (stored
 columns stay minutes). `mrna_lifetime` / `protein_lifetime` are half-lives
-\(\ln(2)/\delta\) and \(\ln(2)/\beta\).
+\(\ln(2)/\delta\) and \(\ln(2)/\beta\). Written fit tables store those
+observables plus `onset_time`, `expression_rate`, `baseline_intensity`, and
+`success`; degradation rates and `expression_amplitude` are reconstructed at
+plot time and are not exported. Traces keep `background` and `sum` for QC.

@@ -187,14 +187,19 @@ pub fn trapezoidal_integral(times: &[f64], values: &[f64]) -> f64 {
 }
 
 /// Coefficients for the basic translation–degradation model (Müller et al. 2024
-/// Eq. 3; **no** protein maturation):
+/// Eq. 3; **no** protein maturation). Used by the optimizer and by `traces_fit`
+/// reconstruction. Written CSV/XLSX store paper observables only
+/// (`onset_time`, `expression_rate`, lifetimes, `baseline_intensity`);
+/// recover `protein_degradation_rate` β = ln(2)/protein_lifetime,
+/// `mrna_degradation_rate` δ = ln(2)/mrna_lifetime, and
+/// `expression_amplitude` = expression_rate / (δ − β) at plot time.
+///
 /// `I(t) = baseline_intensity + expression_amplitude * (e^{-β Δt} − e^{-δ Δt})`
 /// for `t ≥ onset_time` (`t0`), else `baseline_intensity`.
 ///
 /// Paper terms: `onset_time` = onset time \(t_0\);
 /// `expression_rate = expression_amplitude * (δ − β)` = \(m_0 k_{TL}\);
 /// `ln(2)/δ` = mRNA lifetime (half-life); `ln(2)/β` = protein lifetime (half-life).
-/// `protein_degradation_rate` = β; `mrna_degradation_rate` = δ (per minute).
 /// `baseline_intensity` is a baseline nuisance, not a kinetic rate.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct KineticFitCoeffs {
@@ -208,6 +213,22 @@ pub struct KineticFitCoeffs {
 /// Paper lifetime: τ = ln(2)/rate (half-life). Stored in minutes when `rate` is per minute.
 pub fn half_life_minutes(degradation_rate_per_minute: f64) -> f64 {
     std::f64::consts::LN_2 / degradation_rate_per_minute
+}
+
+/// Recover β or δ (per minute) from a stored half-life in minutes.
+pub fn degradation_rate_per_minute(half_life_minutes_value: f64) -> f64 {
+    std::f64::consts::LN_2 / half_life_minutes_value
+}
+
+/// Recover m0·kTL/(δ−β) from stored paper observables.
+pub fn expression_amplitude_from_observables(
+    expression_rate: f64,
+    mrna_lifetime: f64,
+    protein_lifetime: f64,
+) -> f64 {
+    let mrna_degradation_rate = degradation_rate_per_minute(mrna_lifetime);
+    let protein_degradation_rate = degradation_rate_per_minute(protein_lifetime);
+    expression_rate / (mrna_degradation_rate - protein_degradation_rate)
 }
 
 /// Paper Eq. (4): AUC = (ln 2)^2 · m0 k_TL · τ_mRNA · τ_EGFP.
@@ -401,5 +422,26 @@ mod tests {
         let expected =
             std::f64::consts::LN_2.powi(2) * expression_rate * mrna_lifetime * protein_lifetime;
         assert!((auc - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn rates_and_amplitude_reconstruct_from_observables() {
+        let protein_rate = 0.1;
+        let mrna_rate = 0.5;
+        let amplitude = 100.0;
+        let protein_lifetime = half_life_minutes(protein_rate);
+        let mrna_lifetime = half_life_minutes(mrna_rate);
+        let expression_rate = amplitude * (mrna_rate - protein_rate);
+        assert!((degradation_rate_per_minute(protein_lifetime) - protein_rate).abs() < 1e-12);
+        assert!((degradation_rate_per_minute(mrna_lifetime) - mrna_rate).abs() < 1e-12);
+        assert!(
+            (expression_amplitude_from_observables(
+                expression_rate,
+                mrna_lifetime,
+                protein_lifetime
+            ) - amplitude)
+                .abs()
+                < 1e-12
+        );
     }
 }
