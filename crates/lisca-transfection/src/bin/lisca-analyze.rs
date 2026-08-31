@@ -23,7 +23,7 @@ use lisca_transfection::{
     default_fit_jobs, default_jobs, default_timeseries_jobs, interval_minutes, max_onset_minutes,
     publish_sample_tables_xlsx, publish_sample_traces_xlsx, require_named_samples, run_auc,
     run_fit, run_plot_auc, run_plot_fit, run_plot_timeseries, run_segment, run_sync_with_mode,
-    run_timeseries_with_mode, skip_segment, SegmentBackend, SegmentOptions,
+    run_timeseries_with_mode, skip_segment, SegmentBackend, SegmentOptions, ANALYSIS_DIRNAME,
 };
 
 fn main() {
@@ -300,14 +300,14 @@ fn require_workspace_or_timeseries_dir(args: &[String]) -> Result<PathBuf, Strin
     let path = require_workspace(args)?;
     if matches!(
         path.file_name().and_then(|n| n.to_str()),
-        Some("analysis") | Some("timeseries")
+        Some(name) if name == ANALYSIS_DIRNAME || name == "timeseries"
     ) {
         return path
             .parent()
             .map(Path::to_path_buf)
             .ok_or_else(|| "analysis path has no parent workspace".to_string());
     }
-    if path.join("analysis").is_dir() || path.join("assay.json").is_file() {
+    if path.join(ANALYSIS_DIRNAME).is_dir() || path.join("assay.json").is_file() {
         return Ok(path);
     }
     Ok(path)

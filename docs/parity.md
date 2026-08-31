@@ -1,7 +1,9 @@
 # Python / Rust transfection parity
 
 This repo owns **both** implementations of transfection analysis. The lisca
-monorepo will import them via git URL; it is not a dependency of this crate.
+monorepo will import them via git URL. The Rust crate must not depend on
+`lisca` (cycle). Python `transfection` imports lisca **base** for workspace /
+`roi/` path helpers.
 
 ## What is compared
 

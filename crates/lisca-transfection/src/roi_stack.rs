@@ -6,6 +6,7 @@ use serde::Deserialize;
 use tiff::decoder::{Decoder, DecodingResult};
 
 use crate::array::Frame2D;
+use crate::workspace_layout::{mask_pos_dir, roi_dir, roi_pos_dir};
 
 #[derive(Debug, Clone)]
 pub struct RoiCrop {
@@ -60,7 +61,7 @@ struct IndexRoiJson {
 }
 
 pub fn position_dir(workspace: &Path, pos: u32) -> Result<PathBuf, String> {
-    let pos_dir = workspace.join("roi").join(format!("Pos{pos}"));
+    let pos_dir = roi_pos_dir(workspace, pos);
     if !pos_dir.is_dir() {
         return Err(format!(
             "No ROI directory found for position {pos}: {}",
@@ -71,7 +72,7 @@ pub fn position_dir(workspace: &Path, pos: u32) -> Result<PathBuf, String> {
 }
 
 pub fn discover_roi_positions(workspace: &Path) -> Result<Vec<u32>, String> {
-    let roi_root = workspace.join("roi");
+    let roi_root = roi_dir(workspace);
     if !roi_root.is_dir() {
         return Err(format!(
             "Expected roi/ directory at {}",
@@ -344,10 +345,7 @@ fn stack_value(stack: &RoiStack, indices: &[usize]) -> Result<f64, String> {
 }
 
 pub fn default_mask_path(workspace: &Path, position: u32, roi_file_name: &str) -> PathBuf {
-    workspace
-        .join("mask")
-        .join(format!("Pos{position}"))
-        .join(roi_file_name)
+    mask_pos_dir(workspace, position).join(roi_file_name)
 }
 
 pub struct MaskStack {
@@ -425,5 +423,22 @@ fn decode_page_to_bool(
             Ok(values.into_iter().map(|value| value > 0).collect())
         }
         _ => Err("unsupported TIFF pixel type for mask stack".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discover_roi_positions_finds_lisca_pos_dirs() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path();
+        std::fs::create_dir_all(roi_pos_dir(workspace, 1)).unwrap();
+        std::fs::create_dir_all(roi_pos_dir(workspace, 4)).unwrap();
+        std::fs::create_dir_all(roi_dir(workspace).join("not-a-pos")).unwrap();
+        let found = discover_roi_positions(workspace).unwrap();
+        assert_eq!(found, vec![1, 4]);
+        assert!(position_dir(workspace, 1).unwrap().ends_with("roi/Pos1"));
     }
 }

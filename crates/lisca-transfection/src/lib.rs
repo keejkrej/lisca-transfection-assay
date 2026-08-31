@@ -7,8 +7,9 @@
 //! lisca-transfection = { git = "https://github.com/keejkrej/lisca-transfection-assay" }
 //! ```
 //!
-//! This crate must **not** depend on `github.com/keejkrej/lisca` (that would
-//! cycle). The on-disk workspace is the API. Crop / ND2 / CZI stay in lisca
+//! This crate must **not** depend on the `lisca` crate (that would cycle).
+//! Folder names match lisca (`docs/analysis/schema.md`); Python `transfection`
+//! imports `lisca` base for the same paths. Crop / ND2 / CZI stay in lisca
 //! (`lisca-crop`); this crate assumes `roi/` already exists.
 //!
 //! Assay-specific ONNX: `keejkrej/single-cell-pattern-unet` lives in
@@ -39,6 +40,7 @@ mod segment_onnx;
 mod timeseries;
 mod timeseries_stage;
 mod traces;
+mod workspace_layout;
 
 pub use array::{
     auc_from_fit_half_lives, evaluate_kinetic_candidate, fitted_trace_value, full_frame_roi_stats,
@@ -66,3 +68,6 @@ pub use slide::{
 };
 pub use timeseries::{parse_timeseries_path, resolve_slide_channel};
 pub use timeseries_stage::{default_timeseries_jobs, run_timeseries, run_timeseries_with_mode};
+pub use workspace_layout::{
+    ANALYSIS_DIRNAME, BBOX_DIRNAME, MASK_DIRNAME, RESULTS_DIRNAME, ROI_DIRNAME,
+};

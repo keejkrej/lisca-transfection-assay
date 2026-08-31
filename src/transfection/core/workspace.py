@@ -1,3 +1,9 @@
+"""Assay-specific analysis/results helpers (`analysis/PosN/chC.csv`, sample packs).
+
+Folder names come from lisca when exported; path helpers for `roi/PosN` live in
+`transfection.core.roi` and call `lisca.core.bbox` / `lisca.core.workspace`.
+"""
+
 from __future__ import annotations
 
 import re

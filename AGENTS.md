@@ -123,8 +123,8 @@ plot-timeseries → plot-auc → plot-fit
 | Path | Role |
 | --- | --- |
 | `assay.json` | **Required** experiment config (schema below) |
-| `bbox/PosN.csv` | Site boxes from Aligner (owned by lisca; input to pyama / `lisca-crop`). Columns live in lisca, not here. |
-| `roi/PosN/` | Cropped ROI stacks + slim `index.json` (from pyama / `lisca-crop` / Studio). Always `axisOrder: "TCZYX"`; keep `zCount` (`1` if no z-stack). Stack shape is derived as `[timeCount, channelCount, zCount, bbox.h, bbox.w]`. Optional `timeIndices` lists source acquisition frame indices per T plane; timeseries CSV `t` uses these, then `t * interval` is real minutes. |
+| `bbox/PosN.csv` | Site boxes from Aligner. Folders and bbox CSV columns are defined in lisca (`docs/analysis/schema.md`); this package imports `lisca` for read. |
+| `roi/PosN/` | Cropped ROI stacks + slim `index.json` (from pyama / `lisca-crop` / Studio; discovered via lisca path helpers). Always `axisOrder: "TCZYX"`; keep `zCount` (`1` if no z-stack). Stack shape is derived as `[timeCount, channelCount, zCount, bbox.h, bbox.w]`. Optional `timeIndices` lists source acquisition frame indices per T plane; timeseries CSV `t` uses these, then `t * interval` is real minutes. |
 | `mask/PosN/` | Segmentation masks (written by `segment`) |
 | `analysis/` | Pipeline intermediates, **CSV only**. See **`docs/schema.md`**. Analysis stages do not require `samples[].name`. |
 | `results/<sample>/` | User-facing packs (filesystem-safe `samples[].name`; prefix `slideChannel` if names collide). XLSX + PNG; table columns in **`docs/schema.md`**. Shared-y companions use one ylim across all samples. No `*_log` or `area_summary`. Missing `samples[]` fails here, not during timeseries. |
@@ -233,8 +233,13 @@ lisca-transfection = { git = "https://github.com/keejkrej/lisca-transfection-ass
 transfection = { git = "https://github.com/keejkrej/lisca-transfection-assay" }
 ```
 
-This crate must **not** depend on `github.com/keejkrej/lisca`. Crop/ND2/CZI stay in
-lisca. How to run comparisons: **`docs/parity.md`**.
+The Rust crate must **not** depend on `github.com/keejkrej/lisca` (that crate
+depends on this one → cycle). Folder names match lisca (`docs/analysis/schema.md`).
+Python `transfection` imports **lisca base** (no extras) from
+`git+https://github.com/keejkrej/lisca.git#subdirectory=python` for `roi/` path
+helpers (`lisca.core.bbox`, `lisca.core.workspace`). `lisca[analysis]` already
+depends on transfection; that extra is the intended plugin cycle. Crop/ND2/CZI
+stay in lisca. How to run comparisons: **`docs/parity.md`**.
 
 ### Assay model vs product models
 

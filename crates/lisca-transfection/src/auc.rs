@@ -8,12 +8,13 @@ use crate::csv_io::{format_float, write_csv_only};
 use crate::timeseries::{
     discover_timeseries_csvs, group_timeseries_rows, parse_timeseries_path,
 };
+use crate::workspace_layout::{analysis_dir, analysis_pos_dir};
 
 pub fn run_auc(workspace: &Path, interval: f64) -> Result<Vec<PathBuf>, String> {
     if interval <= 0.0 {
         return Err(format!("interval must be > 0, got {interval}"));
     }
-    let timeseries_dir = workspace.join("analysis");
+    let timeseries_dir = analysis_dir(workspace);
     let csvs = discover_timeseries_csvs(&timeseries_dir)?;
     let rows = compute_auc_table(&csvs, interval)?;
     write_position_auc_tables(workspace, &rows)
@@ -92,10 +93,7 @@ fn write_position_auc_tables(workspace: &Path, rows: &[AucRow]) -> Result<Vec<Pa
             channels.dedup();
             channels.len() > 1
         };
-        let output = workspace
-            .join("analysis")
-            .join(format!("Pos{pos}"))
-            .join("auc.csv");
+        let output = analysis_pos_dir(workspace, pos as u32).join("auc.csv");
         if multi {
             let csv_rows = part
                 .iter()
