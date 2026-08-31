@@ -15,15 +15,7 @@ use crate::timeseries::{
     resolve_slide_channel,
 };
 
-pub const TRACE_HEADERS: [&str; 7] = [
-    "pos",
-    "roi",
-    "t",
-    "area",
-    "background",
-    "sum",
-    "corrected",
-];
+pub const TRACE_HEADERS: [&str; 7] = ["pos", "roi", "t", "area", "background", "sum", "corrected"];
 pub const TRACE_HEADERS_WITH_CHANNEL: [&str; 8] = [
     "pos",
     "channel",
@@ -327,7 +319,10 @@ fn project_table_columns(
     if indices.is_empty() {
         return Err("xlsx table has no exportable columns".to_string());
     }
-    let out_headers: Vec<String> = indices.iter().map(|index| headers[*index].clone()).collect();
+    let out_headers: Vec<String> = indices
+        .iter()
+        .map(|index| headers[*index].clone())
+        .collect();
     let out_rows = rows
         .iter()
         .map(|row| {

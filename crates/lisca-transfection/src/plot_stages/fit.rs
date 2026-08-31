@@ -172,28 +172,27 @@ fn load_fit_from_headers(
             .or_else(|| protein_rate_on_disk.map(half_life_minutes));
         let mrna_lifetime =
             read_opt(row, "mrna_lifetime").or_else(|| mrna_rate_on_disk.map(half_life_minutes));
-        let protein_degradation_rate = protein_rate_on_disk
-            .or_else(|| protein_lifetime.map(degradation_rate_per_minute));
+        let protein_degradation_rate =
+            protein_rate_on_disk.or_else(|| protein_lifetime.map(degradation_rate_per_minute));
         let mrna_degradation_rate =
             mrna_rate_on_disk.or_else(|| mrna_lifetime.map(degradation_rate_per_minute));
-        let expression_rate = read_opt(row, "expression_rate").or(match (
-            amplitude_on_disk,
-            mrna_degradation_rate,
-            protein_degradation_rate,
-        ) {
-            (Some(amp), Some(mrna), Some(protein)) => Some(amp * (mrna - protein)),
-            _ => None,
-        });
-        let expression_amplitude = amplitude_on_disk.or(match (
-            expression_rate,
-            mrna_lifetime,
-            protein_lifetime,
-        ) {
-            (Some(rate), Some(mrna), Some(protein)) => {
-                Some(expression_amplitude_from_observables(rate, mrna, protein))
-            }
-            _ => None,
-        });
+        let expression_rate = read_opt(row, "expression_rate").or(
+            match (
+                amplitude_on_disk,
+                mrna_degradation_rate,
+                protein_degradation_rate,
+            ) {
+                (Some(amp), Some(mrna), Some(protein)) => Some(amp * (mrna - protein)),
+                _ => None,
+            },
+        );
+        let expression_amplitude =
+            amplitude_on_disk.or(match (expression_rate, mrna_lifetime, protein_lifetime) {
+                (Some(rate), Some(mrna), Some(protein)) => {
+                    Some(expression_amplitude_from_observables(rate, mrna, protein))
+                }
+                _ => None,
+            });
         parsed.push(FitPlotRow {
             slide_channel,
             pos,
@@ -655,9 +654,9 @@ impl FitPlotRow {
     fn kinetic_coeffs(&self) -> KineticFitCoeffs {
         let protein_lifetime = self.protein_lifetime;
         let mrna_lifetime = self.mrna_lifetime;
-        let protein_degradation_rate = self.protein_degradation_rate.or_else(|| {
-            protein_lifetime.map(degradation_rate_per_minute)
-        });
+        let protein_degradation_rate = self
+            .protein_degradation_rate
+            .or_else(|| protein_lifetime.map(degradation_rate_per_minute));
         let mrna_degradation_rate = self
             .mrna_degradation_rate
             .or_else(|| mrna_lifetime.map(degradation_rate_per_minute));

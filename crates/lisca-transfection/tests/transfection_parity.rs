@@ -245,7 +245,11 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &["roi", "t", "area", "background", "sum", "corrected"],
         AUC_REL_TOL,
     );
-    assert_csv_headers(&python_timeseries, TRACE_ANALYSIS_HEADERS, "python timeseries");
+    assert_csv_headers(
+        &python_timeseries,
+        TRACE_ANALYSIS_HEADERS,
+        "python timeseries",
+    );
     assert_csv_headers(&rust_timeseries, TRACE_ANALYSIS_HEADERS, "rust timeseries");
 
     run_transfection(
@@ -336,8 +340,7 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &fixture.root.join("results").join("auc.png"),
         "rust plot-auc",
     );
-    let rust_traces_xlsx =
-        dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "traces"));
+    let rust_traces_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "traces"));
     let rust_auc_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "auc"));
     let rust_fit_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "fit"));
     compare_csv_numeric_str(
@@ -346,7 +349,12 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         TRACE_XLSX_HEADERS,
         AUC_REL_TOL,
     );
-    compare_csv_numeric_str(&rust_auc_xlsx, &python_auc_xlsx, AUC_XLSX_HEADERS, AUC_REL_TOL);
+    compare_csv_numeric_str(
+        &rust_auc_xlsx,
+        &python_auc_xlsx,
+        AUC_XLSX_HEADERS,
+        AUC_REL_TOL,
+    );
     compare_csv_numeric_str(
         &rust_fit_xlsx,
         &python_fit_xlsx,
@@ -361,7 +369,11 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         ],
         FIT_CLI_REL_TOL,
     );
-    assert_csv_headers(&python_traces_xlsx, TRACE_XLSX_HEADERS, "python traces xlsx");
+    assert_csv_headers(
+        &python_traces_xlsx,
+        TRACE_XLSX_HEADERS,
+        "python traces xlsx",
+    );
     assert_csv_headers(&rust_traces_xlsx, TRACE_XLSX_HEADERS, "rust traces xlsx");
     assert_csv_headers(&python_auc_xlsx, AUC_XLSX_HEADERS, "python auc xlsx");
     assert_csv_headers(&rust_auc_xlsx, AUC_XLSX_HEADERS, "rust auc xlsx");
@@ -417,7 +429,9 @@ fn plot_fit_writes_expression_rate_vs_onset_time_png() {
         "plot-fit service must not write xlsx"
     );
     assert!(
-        !sample_results_dir(&fixture.root).join("traces.xlsx").exists(),
+        !sample_results_dir(&fixture.root)
+            .join("traces.xlsx")
+            .exists(),
         "plot-fit service must not write traces.xlsx"
     );
     assert_forbidden_result_files(&fixture.root);
@@ -451,8 +465,7 @@ fn plot_services_write_png_not_xlsx() {
     run_auc(&fixture.root, INTERVAL_MINUTES).expect("auc");
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("fit");
     set_positive_onset_for_log_plots(&fixture.root.join("analysis").join("Pos1").join("fit.csv"));
-    run_plot_timeseries(&fixture.root, &mapping, INTERVAL_MINUTES, None)
-        .expect("plot-timeseries");
+    run_plot_timeseries(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-timeseries");
     run_plot_auc(&fixture.root, &mapping).expect("plot-auc");
     run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-fit");
     let sample_dir = sample_results_dir(&fixture.root);
@@ -487,15 +500,7 @@ const FIT_ANALYSIS_HEADERS: &[&str] = &[
     "expression_rate",
     "success",
 ];
-const TRACE_XLSX_HEADERS: &[&str] = &[
-    "pos",
-    "roi",
-    "t",
-    "area",
-    "background",
-    "sum",
-    "corrected",
-];
+const TRACE_XLSX_HEADERS: &[&str] = &["pos", "roi", "t", "area", "background", "sum", "corrected"];
 const AUC_XLSX_HEADERS: &[&str] = &["pos", "roi", "auc"];
 const FIT_XLSX_HEADERS: &[&str] = &[
     "pos",
