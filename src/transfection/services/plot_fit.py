@@ -21,6 +21,7 @@ from transfection.core import (
     load_assay_for_workspace,
     load_slide_channel_labels,
     load_timeseries_csv,
+    parse_timeseries_csv_path,
     resolve_slide_channel,
     trace_color_alpha_from_fluor_name,
 )
@@ -102,6 +103,13 @@ def run_plot_fit(
             slide_channel_names=slide_channel_names,
         )
     )
+    scatter_plot = default_scatter_plot_path(resolved_fit_csv, output)
+    write_expression_rate_vs_onset_scatter(
+        df,
+        scatter_plot,
+        slide_channel_names=slide_channel_names,
+    )
+    written_paths.append(scatter_plot)
     return written_paths
 
 
@@ -143,6 +151,11 @@ def default_output_plot_paths(fit_csv: Path, output: Path | None) -> dict[str, P
 def default_trace_plot_path(fit_csv: Path, output: Path | None) -> Path:
     destination_dir = fit_csv.parent if output is None else output.resolve()
     return destination_dir / "traces_fit.png"
+
+
+def default_scatter_plot_path(fit_csv: Path, output: Path | None) -> Path:
+    destination_dir = fit_csv.parent if output is None else output.resolve()
+    return destination_dir / "expression_rate_vs_onset_time.png"
 
 
 def default_trace_shared_y_plot_path(primary_plot: Path) -> Path:
@@ -206,6 +219,87 @@ def write_fit_boxplot(
             np.concatenate(arrays) if arrays else np.array([])
         )
         ax.set_ylim(y_low, y_high)
+
+    output_plot.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_plot, dpi=plot_layout.FIGURE_DPI, bbox_inches="tight")
+    plt.close(fig)
+
+
+def successful_finite_fit_df(df: pd.DataFrame, *parameters: str) -> pd.DataFrame:
+    """Successful rows with finite values — the same keep rule as fit boxplots, plus ``success``.
+
+    Boxplots drop NA/non-finite parameter values; failed fits write those as empty,
+    so this is the scatter equivalent of that filter.
+    """
+    parameter_df = df.loc[df["success"]].dropna(subset=list(parameters)).copy()
+    for parameter in parameters:
+        parameter_df = parameter_df.loc[np.isfinite(parameter_df[parameter].to_numpy(dtype=float))].copy()
+    return parameter_df
+
+
+def pearson_r(x: np.ndarray, y: np.ndarray) -> float | None:
+    if x.size != y.size or x.size < 2:
+        return None
+    if not np.isfinite(x).all() or not np.isfinite(y).all():
+        return None
+    if float(np.std(x, ddof=0)) == 0.0 or float(np.std(y, ddof=0)) == 0.0:
+        return None
+    r = float(np.corrcoef(x, y)[0, 1])
+    if not math.isfinite(r):
+        return None
+    return r
+
+
+def pearson_annotation(r: float | None, n: int) -> str:
+    if r is None:
+        return f"n = {n}"
+    return f"r = {r:.2f}\nn = {n}"
+
+
+def write_expression_rate_vs_onset_scatter(
+    df: pd.DataFrame,
+    output_plot: Path,
+    *,
+    slide_channel_names: dict[int, str],
+) -> None:
+    scatter_df = successful_finite_fit_df(df, "onset_time", "expression_rate")
+    if scatter_df.empty:
+        raise ValueError("No successful finite fits available to plot expression rate vs onset time")
+
+    x_all = scatter_df["onset_time"].to_numpy(dtype=float)
+    y_all = scatter_df["expression_rate"].to_numpy(dtype=float)
+    annotation = pearson_annotation(pearson_r(x_all, y_all), int(x_all.size))
+
+    slide_channels = sorted(scatter_df["slide_channel"].unique().tolist())
+    fig, ax = plt.subplots(figsize=plot_layout.FIGURE_SIZE_SINGLE_IN)
+    for index, slide_channel in enumerate(slide_channels):
+        group = scatter_df.loc[scatter_df["slide_channel"] == slide_channel]
+        label = slide_channel_names.get(slide_channel, str(slide_channel))
+        ax.scatter(
+            group["onset_time"].to_numpy(dtype=float),
+            group["expression_rate"].to_numpy(dtype=float),
+            s=18,
+            alpha=0.55,
+            color=f"C{index % 10}",
+            label=label,
+        )
+
+    ax.set_xlabel("onset time (min)")
+    ax.set_ylabel("expression rate")
+    x_low, x_high = plot_timeseries.percentile_ylim(x_all)
+    y_low, y_high = plot_timeseries.percentile_ylim(y_all)
+    ax.set_xlim(x_low, x_high)
+    ax.set_ylim(y_low, y_high)
+    ax.text(
+        0.05,
+        0.95,
+        annotation,
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+    )
+    if len(slide_channels) > 1:
+        ax.legend()
 
     output_plot.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_plot, dpi=plot_layout.FIGURE_DPI, bbox_inches="tight")
@@ -298,8 +392,10 @@ def write_fitted_trace_grid(
 
     for panel_index, (ax, (csv_path, df)) in enumerate(zip(axes_flat, panels)):
         slide_channel = resolve_slide_channel(csv_path, mapping)
+        position, _signal_channel = parse_timeseries_csv_path(csv_path)
+        frames = [(csv_path, df)]
         trace_color, trace_alpha = trace_color_alpha_from_fluor_name(
-            plot_timeseries.trace_naming_haystack(csv_path, mapping, slide_channel_names)
+            plot_timeseries.trace_naming_haystack(slide_channel, frames, slide_channel_names)
         )
         matched_traces = 0
         trace_groups = df.groupby(plot_timeseries.trace_group_columns(df), sort=True, dropna=False)
@@ -307,7 +403,7 @@ def write_fitted_trace_grid(
             if not isinstance(group_key, tuple):
                 group_key = (group_key,)
             group_values = dict(zip(plot_timeseries.trace_group_columns(df), group_key, strict=True))
-            pos = int(group_values.get("pos", 0))
+            pos = int(group_values.get("pos", position))
             roi = int(group_values["roi"])
             lookup_key = (slide_channel, pos, roi)
             if lookup_key not in fit_lookup.index:
@@ -322,9 +418,8 @@ def write_fitted_trace_grid(
 
         ax.set_title(
             plot_timeseries.subplot_title(
-                csv_path,
+                slide_channel,
                 matched_traces,
-                mapping=mapping,
                 slide_channel_names=slide_channel_names,
             )
         )

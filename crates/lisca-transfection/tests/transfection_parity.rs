@@ -11,9 +11,9 @@ use std::process::Command;
 
 use csv::ReaderBuilder;
 use lisca_transfection::array::{masked_roi_stats, trapezoidal_integral};
-use lisca_transfection::{run_auc, run_fit, run_timeseries};
-use lisca_transfection::slide::build_slide_mapping;
 use lisca_transfection::assay::AssayJsonFile;
+use lisca_transfection::slide::build_slide_mapping;
+use lisca_transfection::{run_auc, run_fit, run_plot_fit, run_timeseries};
 use tempfile::tempdir;
 
 use support::transfection_fixture::{SyntheticWorkspace, INTERVAL_MINUTES};
@@ -209,21 +209,18 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
     let workspace = fixture.root.display().to_string();
     let interval = INTERVAL_MINUTES.to_string();
 
-    run_transfection(
-        &transfection_root,
-        "timeseries",
-        &workspace,
-        &[],
-    );
-    let python_timeseries = fs::read_to_string(fixture.root.join("timeseries").join("Pos1").join("ch1.csv"))
-        .expect("python timeseries");
+    run_transfection(&transfection_root, "timeseries", &workspace, &[]);
+    let python_timeseries =
+        fs::read_to_string(fixture.root.join("timeseries").join("Pos1").join("ch1.csv"))
+            .expect("python timeseries");
     fs::remove_dir_all(fixture.root.join("timeseries")).ok();
 
     let assay = read_assay_json(&fixture.root);
     let mapping = build_slide_mapping(&assay).expect("mapping");
     run_timeseries(&fixture.root, &mapping, 1).expect("rust timeseries");
-    let rust_timeseries = fs::read_to_string(fixture.root.join("timeseries").join("Pos1").join("ch1.csv"))
-        .expect("rust timeseries");
+    let rust_timeseries =
+        fs::read_to_string(fixture.root.join("timeseries").join("Pos1").join("ch1.csv"))
+            .expect("rust timeseries");
     compare_csv_numeric_str(
         &rust_timeseries,
         &python_timeseries,
@@ -237,10 +234,12 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &workspace,
         &[("--interval", &interval)],
     );
-    let python_auc = fs::read_to_string(fixture.root.join("results").join("auc.csv")).expect("python auc");
+    let python_auc =
+        fs::read_to_string(fixture.root.join("results").join("auc.csv")).expect("python auc");
     fs::remove_file(fixture.root.join("results").join("auc.csv")).ok();
     run_auc(&fixture.root, INTERVAL_MINUTES).expect("rust auc");
-    let rust_auc = fs::read_to_string(fixture.root.join("results").join("auc.csv")).expect("rust auc");
+    let rust_auc =
+        fs::read_to_string(fixture.root.join("results").join("auc.csv")).expect("rust auc");
     compare_csv_numeric_str(
         &rust_auc,
         &python_auc,
@@ -254,10 +253,23 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &workspace,
         &[("--interval", &interval), ("--max-onset-minutes", "0")],
     );
-    let python_fit = fs::read_to_string(fixture.root.join("results").join("fit.csv")).expect("python fit");
+    let python_fit =
+        fs::read_to_string(fixture.root.join("results").join("fit.csv")).expect("python fit");
+
+    run_transfection(
+        &transfection_root,
+        "plot-fit",
+        &workspace,
+        &[("--interval", &interval)],
+    );
+    assert_nonempty_png(&fit_scatter_png(&fixture.root), "python plot-fit");
+    // Drop Python PNGs so a missing Rust write cannot pass on leftover files.
+    remove_result_pngs(&fixture.root);
+
     fs::remove_file(fixture.root.join("results").join("fit.csv")).ok();
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("rust fit");
-    let rust_fit = fs::read_to_string(fixture.root.join("results").join("fit.csv")).expect("rust fit");
+    let rust_fit =
+        fs::read_to_string(fixture.root.join("results").join("fit.csv")).expect("rust fit");
     compare_csv_numeric_str(
         &rust_fit,
         &python_fit,
@@ -270,6 +282,71 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         ],
         FIT_CLI_REL_TOL,
     );
+
+    run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("rust plot-fit");
+    assert_nonempty_png(&fit_scatter_png(&fixture.root), "rust plot-fit");
+}
+
+#[test]
+fn plot_fit_writes_expression_rate_vs_onset_time_png() {
+    let temp = tempdir().expect("tempdir");
+    let fixture = SyntheticWorkspace::build(temp.path());
+    let assay = read_assay_json(&fixture.root);
+    let mapping = build_slide_mapping(&assay).expect("mapping");
+    run_timeseries(&fixture.root, &mapping, 1).expect("timeseries");
+    run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("fit");
+    run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-fit");
+
+    let scatter = fixture
+        .root
+        .join("results")
+        .join("expression_rate_vs_onset_time.png");
+    assert!(scatter.is_file(), "expected {}", scatter.display());
+    assert!(
+        scatter.metadata().expect("scatter metadata").len() > 0,
+        "scatter PNG should be non-empty"
+    );
+    for name in [
+        "onset_time.png",
+        "expression_rate.png",
+        "traces_fit.png",
+        "traces_fit_shared_y.png",
+    ] {
+        let path = fixture.root.join("results").join(name);
+        assert!(
+            path.is_file(),
+            "expected existing fit plot {}",
+            path.display()
+        );
+    }
+}
+
+const FIT_SCATTER_PNG: &str = "expression_rate_vs_onset_time.png";
+
+fn fit_scatter_png(workspace: &Path) -> PathBuf {
+    workspace.join("results").join(FIT_SCATTER_PNG)
+}
+
+fn assert_nonempty_png(path: &Path, side: &str) {
+    assert!(path.is_file(), "{side} did not write {}", path.display());
+    assert!(
+        path.metadata().expect("png metadata").len() > 0,
+        "{side} wrote an empty PNG at {}",
+        path.display()
+    );
+}
+
+fn remove_result_pngs(workspace: &Path) {
+    let results = workspace.join("results");
+    let Ok(entries) = fs::read_dir(&results) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some("png") {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 fn transfection_repo_root() -> PathBuf {

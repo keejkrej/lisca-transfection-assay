@@ -1,0 +1,48 @@
+# Python units + Python/Rust transfection parity gate.
+# cargo test shells out to `.uv/uv run transfection`, so install.sh runs first.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: pytest + Python/Rust parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mplot system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            pkg-config
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Python package
+        run: bash install.sh
+
+      - name: pytest
+        run: .uv/uv run pytest
+
+      - name: cargo test (includes Python/Rust parity)
+        run: cargo test -p lisca-transfection
