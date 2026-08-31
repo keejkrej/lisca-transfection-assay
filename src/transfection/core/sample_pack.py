@@ -31,9 +31,16 @@ from transfection.core.workspace import (
 TRACES_KIND = "traces"
 AUC_KIND = "auc"
 FIT_KIND = "fit"
-TRACES_TABLE_COLUMNS = (
+# Written XLSX identity is the sample folder. Plots may still attach
+# slide_channel in memory when concatenating.
+XLSX_DROP_COLUMNS = (
     "slide_channel",
     "sample",
+    "protein_degradation_rate",
+    "mrna_degradation_rate",
+    "expression_amplitude",
+)
+TRACES_TABLE_COLUMNS = (
     "pos",
     "roi",
     "t",
@@ -43,8 +50,6 @@ TRACES_TABLE_COLUMNS = (
     "corrected",
 )
 TRACES_TABLE_COLUMNS_WITH_CHANNEL = (
-    "slide_channel",
-    "sample",
     "pos",
     "channel",
     "roi",
@@ -53,6 +58,29 @@ TRACES_TABLE_COLUMNS_WITH_CHANNEL = (
     "background",
     "sum",
     "corrected",
+)
+AUC_TABLE_COLUMNS = ("pos", "roi", "auc")
+AUC_TABLE_COLUMNS_WITH_CHANNEL = ("pos", "channel", "roi", "auc")
+FIT_TABLE_COLUMNS = (
+    "pos",
+    "roi",
+    "baseline_intensity",
+    "onset_time",
+    "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
+    "success",
+)
+FIT_TABLE_COLUMNS_WITH_CHANNEL = (
+    "pos",
+    "channel",
+    "roi",
+    "baseline_intensity",
+    "onset_time",
+    "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
+    "success",
 )
 
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
@@ -129,6 +157,24 @@ def _order_columns(df: pd.DataFrame, preferred: tuple[str, ...]) -> pd.DataFrame
     return df.loc[:, [*columns, *extras]]
 
 
+def _xlsx_export_table(df: pd.DataFrame, preferred: tuple[str, ...]) -> pd.DataFrame:
+    drop = [column for column in XLSX_DROP_COLUMNS if column in df.columns]
+    table = df.drop(columns=drop) if drop else df
+    columns = [column for column in preferred if column in table.columns]
+    return table.loc[:, columns]
+
+
+def _table_columns_for_kind(kind: str, include_channel: bool) -> tuple[str, ...]:
+    if kind == AUC_KIND:
+        return AUC_TABLE_COLUMNS_WITH_CHANNEL if include_channel else AUC_TABLE_COLUMNS
+    if kind == FIT_KIND:
+        return FIT_TABLE_COLUMNS_WITH_CHANNEL if include_channel else FIT_TABLE_COLUMNS
+    if kind == TRACES_KIND:
+        return TRACES_TABLE_COLUMNS_WITH_CHANNEL if include_channel else TRACES_TABLE_COLUMNS
+    identity = ("pos", "channel", "roi") if include_channel else ("pos", "roi")
+    return identity
+
+
 def concat_sample_traces(workspace: Path, mapping: SlideMapping) -> dict[int, pd.DataFrame]:
     named = require_plot_mapping(mapping)
     csvs = discover_timeseries_csvs(workspace_analysis_dir(workspace))
@@ -179,7 +225,12 @@ def publish_sample_traces_xlsx(workspace: Path, mapping: SlideMapping) -> list[P
         if dirname is None:
             continue
         path = sample_table_xlsx_path(workspace, dirname, TRACES_KIND)
-        write_xlsx_only(table, path)
+        preferred = (
+            TRACES_TABLE_COLUMNS_WITH_CHANNEL
+            if "channel" in table.columns
+            else TRACES_TABLE_COLUMNS
+        )
+        write_xlsx_only(_xlsx_export_table(table, preferred), path)
         written.append(path)
     if not written:
         raise ValueError("No analysis traces matched named samples[]")
@@ -218,19 +269,24 @@ def concat_sample_tables(
             df = df.loc[df["channel"].astype(int).isin(allowed)].copy()
         frames[slide_channel].append(df)
 
+    any_channel = any("channel" in part.columns for parts in frames.values() for part in parts)
     out: dict[int, pd.DataFrame] = {}
+    preferred_identity = (
+        "slide_channel",
+        "sample",
+        "pos",
+        "channel",
+        "roi",
+    )
     for slide_channel, parts in frames.items():
         combined = pd.concat(parts, ignore_index=True)
-        preferred = (
-            "slide_channel",
-            "sample",
-            "pos",
-            "channel",
-            "roi",
-        )
-        sort_cols = [column for column in preferred if column in combined.columns]
+        if not any_channel and "channel" in combined.columns:
+            combined = combined.drop(columns=["channel"])
+        sort_cols = [column for column in preferred_identity if column in combined.columns]
+        table_preferred = _table_columns_for_kind(kind, any_channel)
+        in_memory_preferred = ("slide_channel", "sample", *table_preferred)
         out[slide_channel] = (
-            _order_columns(combined, preferred)
+            _order_columns(combined, in_memory_preferred)
             .sort_values(sort_cols)
             .reset_index(drop=True)
         )
@@ -250,7 +306,8 @@ def publish_sample_tables_xlsx(
         if dirname is None:
             continue
         path = sample_table_xlsx_path(workspace, dirname, kind)
-        write_xlsx_only(table, path)
+        preferred = _table_columns_for_kind(kind, "channel" in table.columns)
+        write_xlsx_only(_xlsx_export_table(table, preferred), path)
         written.append(path)
     if not written:
         raise ValueError(f"No analysis {kind} rows matched named samples[]")

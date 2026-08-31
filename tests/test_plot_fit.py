@@ -10,6 +10,8 @@ import pytest
 from transfection.services.plot_fit import (
     default_mrna_lifetime_scatter_plot_path,
     default_scatter_plot_path,
+    fitted_trace_values,
+    load_fit_table,
     log_joint_limits,
     make_log_joint_figure,
     pearson_annotation,
@@ -211,3 +213,45 @@ def test_write_joint_scatter_requires_positive_values(tmp_path: Path) -> None:
             tmp_path / "expression_rate_vs_onset_time.png",
             slide_channel_names={0: "condA"},
         )
+
+
+def test_load_fit_table_derives_rates_from_lifetimes() -> None:
+    protein_rate = 0.01
+    mrna_rate = 0.05
+    amplitude = 2.0
+    df = pd.DataFrame(
+        {
+            "roi": [1],
+            "success": ["true"],
+            "baseline_intensity": [1.0],
+            "protein_lifetime": [math.log(2) / protein_rate],
+            "mrna_lifetime": [math.log(2) / mrna_rate],
+            "onset_time": [10.0],
+            "expression_rate": [amplitude * (mrna_rate - protein_rate)],
+        }
+    )
+    out = load_fit_table(df)
+    assert "protein_degradation_rate" not in df.columns
+    assert out.loc[0, "protein_degradation_rate"] == pytest.approx(protein_rate)
+    assert out.loc[0, "mrna_degradation_rate"] == pytest.approx(mrna_rate)
+    assert out.loc[0, "expression_amplitude"] == pytest.approx(amplitude)
+
+
+def test_fitted_trace_values_reconstruct_from_observables() -> None:
+    protein_rate = 0.1
+    mrna_rate = 0.5
+    amplitude = 100.0
+    row = pd.Series(
+        {
+            "baseline_intensity": 10.0,
+            "protein_lifetime": math.log(2) / protein_rate,
+            "mrna_lifetime": math.log(2) / mrna_rate,
+            "onset_time": 0.0,
+            "expression_rate": amplitude * (mrna_rate - protein_rate),
+        }
+    )
+    times = np.array([0.0, 10.0, 20.0])
+    predicted = fitted_trace_values(times, row)
+    dt = times
+    expected = 10.0 + amplitude * (np.exp(-protein_rate * dt) - np.exp(-mrna_rate * dt))
+    np.testing.assert_allclose(predicted, expected)

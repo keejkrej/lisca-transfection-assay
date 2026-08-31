@@ -158,10 +158,18 @@ fn fit_stage_matches_transfection_reference_fit() {
         !headers.iter().any(|name| name.contains("decay_rate")),
         "fit.csv must not write *_decay_rate columns: {headers:?}"
     );
-    assert!(headers
-        .iter()
-        .any(|name| name == "protein_degradation_rate"));
-    assert!(headers.iter().any(|name| name == "mrna_degradation_rate"));
+    for dropped in [
+        "protein_degradation_rate",
+        "mrna_degradation_rate",
+        "expression_amplitude",
+        "slide_channel",
+        "sample",
+    ] {
+        assert!(
+            !headers.iter().any(|name| name == dropped),
+            "fit.csv must not write {dropped}: {headers:?}"
+        );
+    }
     assert_eq!(rows.len(), 1);
     let row = &rows[0];
     assert_eq!(row["success"], "true");
@@ -183,21 +191,6 @@ fn fit_stage_matches_transfection_reference_fit() {
         FIT_REL_TOL
     ));
     assert!(approx_eq(
-        parse_f64(&row["protein_degradation_rate"]),
-        reference.protein_degradation_rate,
-        FIT_REL_TOL
-    ));
-    assert!(approx_eq(
-        parse_f64(&row["mrna_degradation_rate"]),
-        reference.mrna_degradation_rate,
-        FIT_REL_TOL
-    ));
-    assert!(approx_eq(
-        parse_f64(&row["expression_amplitude"]),
-        reference.expression_amplitude,
-        FIT_REL_TOL
-    ));
-    assert!(approx_eq(
         parse_f64(&row["onset_time"]),
         reference.onset_time,
         FIT_REL_TOL
@@ -210,6 +203,12 @@ fn fit_stage_matches_transfection_reference_fit() {
     assert!(approx_eq(
         parse_f64(&row["mrna_lifetime"]),
         support::transfection_reference::half_life_minutes(reference.mrna_degradation_rate),
+        FIT_REL_TOL
+    ));
+    assert!(approx_eq(
+        parse_f64(&row["expression_rate"]),
+        reference.expression_amplitude
+            * (reference.mrna_degradation_rate - reference.protein_degradation_rate),
         FIT_REL_TOL
     ));
 }
@@ -246,6 +245,12 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &["roi", "t", "area", "background", "sum", "corrected"],
         AUC_REL_TOL,
     );
+    assert_csv_headers(
+        &python_timeseries,
+        TRACE_ANALYSIS_HEADERS,
+        "python timeseries",
+    );
+    assert_csv_headers(&rust_timeseries, TRACE_ANALYSIS_HEADERS, "rust timeseries");
 
     run_transfection(
         &transfection_root,
@@ -258,6 +263,8 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
     run_auc(&fixture.root, INTERVAL_MINUTES).expect("rust auc");
     let rust_auc = fs::read_to_string(analysis_pos.join("auc.csv")).expect("rust auc");
     compare_csv_numeric_str(&rust_auc, &python_auc, &["roi", "auc"], AUC_REL_TOL);
+    assert_csv_headers(&python_auc, AUC_ANALYSIS_HEADERS, "python auc");
+    assert_csv_headers(&rust_auc, AUC_ANALYSIS_HEADERS, "rust auc");
 
     run_transfection(
         &transfection_root,
@@ -305,16 +312,15 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &python_fit,
         &[
             "baseline_intensity",
-            "protein_degradation_rate",
-            "mrna_degradation_rate",
             "protein_lifetime",
             "mrna_lifetime",
             "onset_time",
-            "expression_amplitude",
             "expression_rate",
         ],
         FIT_CLI_REL_TOL,
     );
+    assert_csv_headers(&python_fit, FIT_ANALYSIS_HEADERS, "python fit");
+    assert_csv_headers(&rust_fit, FIT_ANALYSIS_HEADERS, "rust fit");
 
     set_positive_onset_for_log_plots(&analysis_pos.join("fit.csv"));
     let named = require_named_samples(&mapping).expect("named samples");
@@ -334,37 +340,28 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &fixture.root.join("results").join("auc.png"),
         "rust plot-auc",
     );
+    let rust_traces_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "traces"));
+    let rust_auc_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "auc"));
+    let rust_fit_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "fit"));
     compare_csv_numeric_str(
-        &dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "traces")),
+        &rust_traces_xlsx,
         &python_traces_xlsx,
-        &[
-            "slide_channel",
-            "pos",
-            "roi",
-            "t",
-            "area",
-            "background",
-            "sum",
-            "corrected",
-        ],
+        TRACE_XLSX_HEADERS,
         AUC_REL_TOL,
     );
     compare_csv_numeric_str(
-        &dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "auc")),
+        &rust_auc_xlsx,
         &python_auc_xlsx,
-        &["slide_channel", "pos", "roi", "auc"],
+        AUC_XLSX_HEADERS,
         AUC_REL_TOL,
     );
     compare_csv_numeric_str(
-        &dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "fit")),
+        &rust_fit_xlsx,
         &python_fit_xlsx,
         &[
-            "slide_channel",
             "pos",
             "roi",
             "baseline_intensity",
-            "protein_degradation_rate",
-            "mrna_degradation_rate",
             "protein_lifetime",
             "mrna_lifetime",
             "onset_time",
@@ -372,6 +369,28 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         ],
         FIT_CLI_REL_TOL,
     );
+    assert_csv_headers(
+        &python_traces_xlsx,
+        TRACE_XLSX_HEADERS,
+        "python traces xlsx",
+    );
+    assert_csv_headers(&rust_traces_xlsx, TRACE_XLSX_HEADERS, "rust traces xlsx");
+    assert_csv_headers(&python_auc_xlsx, AUC_XLSX_HEADERS, "python auc xlsx");
+    assert_csv_headers(&rust_auc_xlsx, AUC_XLSX_HEADERS, "rust auc xlsx");
+    assert_csv_headers(&python_fit_xlsx, FIT_XLSX_HEADERS, "python fit xlsx");
+    assert_csv_headers(&rust_fit_xlsx, FIT_XLSX_HEADERS, "rust fit xlsx");
+    assert_no_dropped_names(&python_timeseries, "python timeseries");
+    assert_no_dropped_names(&rust_timeseries, "rust timeseries");
+    assert_no_dropped_names(&python_auc, "python auc");
+    assert_no_dropped_names(&rust_auc, "rust auc");
+    assert_no_dropped_names(&python_fit, "python fit");
+    assert_no_dropped_names(&rust_fit, "rust fit");
+    assert_no_dropped_names(&python_traces_xlsx, "python traces xlsx");
+    assert_no_dropped_names(&rust_traces_xlsx, "rust traces xlsx");
+    assert_no_dropped_names(&python_auc_xlsx, "python auc xlsx");
+    assert_no_dropped_names(&rust_auc_xlsx, "rust auc xlsx");
+    assert_no_dropped_names(&python_fit_xlsx, "python fit xlsx");
+    assert_no_dropped_names(&rust_fit_xlsx, "rust fit xlsx");
     assert_frozen_workspace_tree(&fixture.root, "rust");
 }
 
@@ -410,7 +429,9 @@ fn plot_fit_writes_expression_rate_vs_onset_time_png() {
         "plot-fit service must not write xlsx"
     );
     assert!(
-        !sample_results_dir(&fixture.root).join("traces.xlsx").exists(),
+        !sample_results_dir(&fixture.root)
+            .join("traces.xlsx")
+            .exists(),
         "plot-fit service must not write traces.xlsx"
     );
     assert_forbidden_result_files(&fixture.root);
@@ -444,8 +465,7 @@ fn plot_services_write_png_not_xlsx() {
     run_auc(&fixture.root, INTERVAL_MINUTES).expect("auc");
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("fit");
     set_positive_onset_for_log_plots(&fixture.root.join("analysis").join("Pos1").join("fit.csv"));
-    run_plot_timeseries(&fixture.root, &mapping, INTERVAL_MINUTES, None)
-        .expect("plot-timeseries");
+    run_plot_timeseries(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-timeseries");
     run_plot_auc(&fixture.root, &mapping).expect("plot-auc");
     run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-fit");
     let sample_dir = sample_results_dir(&fixture.root);
@@ -469,6 +489,36 @@ fn plot_services_write_png_not_xlsx() {
     );
 }
 
+const TRACE_ANALYSIS_HEADERS: &[&str] = &["roi", "t", "area", "background", "sum", "corrected"];
+const AUC_ANALYSIS_HEADERS: &[&str] = &["roi", "auc"];
+const FIT_ANALYSIS_HEADERS: &[&str] = &[
+    "roi",
+    "baseline_intensity",
+    "onset_time",
+    "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
+    "success",
+];
+const TRACE_XLSX_HEADERS: &[&str] = &["pos", "roi", "t", "area", "background", "sum", "corrected"];
+const AUC_XLSX_HEADERS: &[&str] = &["pos", "roi", "auc"];
+const FIT_XLSX_HEADERS: &[&str] = &[
+    "pos",
+    "roi",
+    "baseline_intensity",
+    "onset_time",
+    "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
+    "success",
+];
+const DROPPED_TABLE_COLUMNS: &[&str] = &[
+    "slide_channel",
+    "sample",
+    "protein_degradation_rate",
+    "mrna_degradation_rate",
+    "expression_amplitude",
+];
 const FIT_SCATTER_PNG: &str = "expression_rate_vs_onset_time.png";
 const FIT_LIFETIME_SCATTER_PNG: &str = "expression_rate_vs_mrna_lifetime.png";
 const SAMPLE_DIRNAME: &str = "condA";
@@ -649,6 +699,29 @@ fn set_positive_onset_for_log_plots(fit_csv: &Path) {
         out.push('\n');
     }
     fs::write(fit_csv, out).expect("write fit.csv");
+}
+
+fn assert_csv_headers(csv: &str, expected: &[&str], label: &str) {
+    let header_line = csv
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("");
+    let headers: Vec<&str> = header_line.split(',').map(str::trim).collect();
+    assert_eq!(headers, expected, "{label} headers");
+}
+
+fn assert_no_dropped_names(csv: &str, label: &str) {
+    let header_line = csv
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("");
+    let headers: Vec<&str> = header_line.split(',').map(str::trim).collect();
+    for dropped in DROPPED_TABLE_COLUMNS {
+        assert!(
+            !headers.iter().any(|header| header == dropped),
+            "{label} must not contain {dropped}: {headers:?}"
+        );
+    }
 }
 
 fn assert_nonempty_png(path: &Path, side: &str) {

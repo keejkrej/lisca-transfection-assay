@@ -5,7 +5,8 @@ This repo is the **home of transfection analysis** for LiSCA: the Python
 parity tests that compare them on the same workspace.
 
 Config is **`assay.json`** only (Studio-compatible). Agents or Studio write
-it; this package does not generate it. Schema and CLI details: **`AGENTS.md`**.
+it; this package does not generate it. CLI and `assay.json` fields:
+**`AGENTS.md`**. On-disk CSV/XLSX columns: **`docs/schema.md`**.
 
 **ROI crop is not here.** Crop is shared across assays and stays in the lisca
 monorepo (`lisca-crop`, ND2/CZI readers, bbox → `roi/`). Typical flow:
@@ -88,7 +89,8 @@ cargo test -p lisca-transfection --features onnx
 (needs `uv`, from `.uv/uv` after `install.sh` or on `PATH`). GitHub Actions
 runs the same commands on PRs and `main`. Details: **`docs/parity.md`**.
 
-Full stage list and `assay.json` schema: `AGENTS.md`.
+Full stage list and `assay.json` fields: `AGENTS.md`. Locked table columns:
+`docs/schema.md`.
 
 ## Workspace layout
 
@@ -111,5 +113,4 @@ There is no `timeseries/` folder, no combined results tables, and no csv under
 `results/`. Plot stages never recompute analysis. Shared-y ylim is pooled
 across samples. Joint scatters use `onset_time` / `mrna_lifetime` vs
 `expression_rate` (log-log). Onset/lifetime PNG axes are hours (stored
-columns stay minutes). `mrna_lifetime` / `protein_lifetime` are half-lives
-\(\ln(2)/\delta\) and \(\ln(2)/\beta\).
+columns stay minutes). Table columns: **`docs/schema.md`**.

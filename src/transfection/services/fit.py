@@ -21,27 +21,25 @@ from transfection.core.workspace import analysis_position_table_csv
 
 
 # Fit CSV columns — Müller et al. 2024 basic model (no maturation).
+# Written tables store paper observables only. Optimizer structs still hold
+# β, δ, and amplitude internally; those are not exported.
 #
 #   onset_time                 t0  (minutes after acquisition start)
 #   expression_rate            m0·kTL  (initial protein-production slope)
 #   mrna_lifetime              ln(2)/δ  (half-life of delivered mRNA, minutes)
 #   protein_lifetime           ln(2)/β  (half-life of reporter protein, minutes)
-#   protein_degradation_rate   β  (per minute)
-#   mrna_degradation_rate      δ  (per minute)
-#   expression_amplitude       m0·kTL / (δ − β)  (intermediate fit coefficient)
 #   baseline_intensity         additive baseline (not a kinetic rate)
+# Recover at plot/fit-curve time: β = ln(2)/protein_lifetime,
+# δ = ln(2)/mrna_lifetime, amplitude = expression_rate / (δ − β).
 # Paper Eq. (4): AUC = (ln 2)^2 · m0 k_TL · τ_mRNA · τ_EGFP holds only for these
 # half-lives. Trace-integrated AUC from fluorescence is a separate quantity.
 OUTPUT_COLUMNS = (
     "roi",
     "baseline_intensity",
-    "protein_degradation_rate",
-    "protein_lifetime",
-    "mrna_degradation_rate",
-    "mrna_lifetime",
     "onset_time",
-    "expression_amplitude",
     "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
     "success",
 )
 OUTPUT_COLUMNS_WITH_CHANNEL = ("channel", *OUTPUT_COLUMNS)
