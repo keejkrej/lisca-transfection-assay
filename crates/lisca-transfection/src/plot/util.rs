@@ -47,6 +47,45 @@ pub fn percentile_ylim_with(
     expand_degenerate_ylim(low, high)
 }
 
+/// Log-axis limits: 5th–95th percentile of finite positive values, then pad
+/// 0.4 decades on each side so the bulk sits in the center of the frame.
+pub const JOINT_PERCENTILE_LO: f64 = 5.0;
+pub const JOINT_PERCENTILE_HI: f64 = 95.0;
+pub const JOINT_LOG10_PAD: f64 = 0.4;
+pub const JOINT_HIST_BINS: usize = 18;
+
+pub fn log_joint_limits(values: &[f64]) -> (f64, f64) {
+    let finite: Vec<f64> = values
+        .iter()
+        .copied()
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .collect();
+    if finite.is_empty() {
+        return (1.0, 10.0);
+    }
+    if finite.len() == 1 {
+        let center = finite[0];
+        return (
+            center / 10.0_f64.powf(JOINT_LOG10_PAD),
+            center * 10.0_f64.powf(JOINT_LOG10_PAD),
+        );
+    }
+    let low = percentile(&finite, JOINT_PERCENTILE_LO);
+    let high = percentile(&finite, JOINT_PERCENTILE_HI);
+    if low <= 0.0 || high <= low {
+        let log_mean = finite.iter().map(|value| value.ln()).sum::<f64>() / finite.len() as f64;
+        let center = log_mean.exp();
+        return (
+            center / 10.0_f64.powf(JOINT_LOG10_PAD),
+            center * 10.0_f64.powf(JOINT_LOG10_PAD),
+        );
+    }
+    (
+        10.0_f64.powf(low.log10() - JOINT_LOG10_PAD),
+        10.0_f64.powf(high.log10() + JOINT_LOG10_PAD),
+    )
+}
+
 pub fn expand_degenerate_ylim(low: f64, high: f64) -> (f64, f64) {
     if !low.is_finite() || !high.is_finite() {
         return (0.0, 1.0);
@@ -152,5 +191,24 @@ mod tests {
         let (low, high) = percentile_ylim(&values);
         assert!((low - 0.1).abs() < 1e-9);
         assert!((high - 110.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn log_joint_limits_center_bulk_and_ignore_outliers() {
+        let mut values = vec![10.0; 100];
+        values.push(1_000_000.0);
+        let (low, high) = log_joint_limits(&values);
+        assert!(low > 0.0);
+        let center = 10.0_f64.powf(0.5 * (low.log10() + high.log10()));
+        assert!((center - 10.0).abs() / 10.0 < 0.2);
+        assert!(high < 100_000.0);
+    }
+
+    #[test]
+    fn log_joint_limits_drop_non_positive() {
+        let (low, high) = log_joint_limits(&[0.0, -1.0, 10.0]);
+        assert!(low > 0.0 && high > low);
+        let center = 10.0_f64.powf(0.5 * (low.log10() + high.log10()));
+        assert!((center - 10.0).abs() / 10.0 < 0.05);
     }
 }

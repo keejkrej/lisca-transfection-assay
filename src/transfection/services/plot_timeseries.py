@@ -27,7 +27,6 @@ from transfection.core import (
 from transfection.core.sample_pack import (
     concat_sample_traces,
     labels_from_sample_column,
-    publish_sample_traces_xlsx,
     sample_pack_dir,
     sample_pack_dirnames,
 )
@@ -499,8 +498,7 @@ def run_plot_timeseries(
     tables = concat_sample_traces(workspace, mapping)
     dirnames = sample_pack_dirnames(mapping)
     names = {sc: entry.sample_name for sc, entry in mapping.items()}
-    xlsx_paths = publish_sample_traces_xlsx(workspace, mapping)
-    written: list[Path] = list(xlsx_paths)
+    written: list[Path] = []
     jobs: list[tuple[int, pd.DataFrame, Path]] = []
     for slide_channel, table in tables.items():
         dirname = dirnames.get(slide_channel)

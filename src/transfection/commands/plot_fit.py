@@ -6,13 +6,20 @@ from typing import Annotated
 import typer
 
 from transfection.app import app
-from transfection.core import infer_workspace_root, resolve_interval_minutes
+from transfection.core import (
+    infer_workspace_root,
+    load_assay_for_workspace,
+    require_named_samples,
+    resolve_interval_minutes,
+)
+from transfection.core.sample_pack import publish_sample_tables_xlsx
 from transfection.services.plot_fit import format_written_fit_plot_messages, run_plot_fit
 
 NAME = "plot-fit"
 HELP = (
     "Read analysis/PosN/fit.csv (never refits) and write results/<sample>/fit.xlsx, "
-    "traces_fit.png, traces_fit_shared_y.png, and expression_rate_vs_onset_time.png, "
+    "traces_fit.png, traces_fit_shared_y.png, expression_rate_vs_onset_time.png, "
+    "expression_rate_vs_mrna_lifetime.png, "
     "plus cross-sample parameter boxplots at results/. Requires samples[].name."
 )
 
@@ -65,6 +72,10 @@ def plot_fit(
     ] = None,
 ) -> None:
     workspace = infer_workspace_root(fit_csv)
+    config = load_assay_for_workspace(workspace, assay)
+    mapping = require_named_samples(config)
+    for path in publish_sample_tables_xlsx(workspace, mapping, "fit"):
+        typer.echo(f"Wrote table: {path}")
     resolved = resolve_interval_minutes(workspace, assay=assay, override=interval)
     output_plots = run_plot_fit(
         fit_csv,

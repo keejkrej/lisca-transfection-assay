@@ -6,7 +6,13 @@ from typing import Annotated
 import typer
 
 from transfection.app import app
-from transfection.core import infer_workspace_root, resolve_interval_minutes
+from transfection.core import (
+    infer_workspace_root,
+    load_assay_for_workspace,
+    require_named_samples,
+    resolve_interval_minutes,
+)
+from transfection.core.sample_pack import publish_sample_traces_xlsx
 from transfection.services.plot_timeseries import (
     format_written_timeseries_plot_message,
     run_plot_timeseries,
@@ -69,6 +75,10 @@ def plot_timeseries(
     ] = None,
 ) -> None:
     workspace = infer_workspace_root(metrics_dir)
+    config = load_assay_for_workspace(workspace, assay)
+    mapping = require_named_samples(config)
+    for path in publish_sample_traces_xlsx(workspace, mapping):
+        typer.echo(f"Wrote table: {path}")
     resolved = resolve_interval_minutes(workspace, assay=assay, override=interval)
     written_plots = run_plot_timeseries(
         metrics_dir=workspace,

@@ -20,11 +20,29 @@ pub const TICK_FONTSIZE: f64 = 17.0;
 /// One axes (traces, summary, area, scatter, AUC / fit parameter boxplots).
 pub fn figure_builder_single() -> FigureBuilder {
     Figure::builder()
-        .size(Size::inches(FIGURE_SINGLE_WIDTH_IN, FIGURE_SINGLE_HEIGHT_IN))
+        .size(Size::inches(
+            FIGURE_SINGLE_WIDTH_IN,
+            FIGURE_SINGLE_HEIGHT_IN,
+        ))
         .label_fontsize(LABEL_FONTSIZE)
         .tick_fontsize(TICK_FONTSIZE)
         .title_fontsize(TITLE_FONTSIZE)
         .gaps(0.2, 0.2)
+}
+
+/// Square-ish joint plot (scatter + attached x/y histograms). Small gaps so the
+/// three axes read as one framed panel.
+pub const FIGURE_JOINT_WIDTH_IN: f64 = 6.5;
+pub const FIGURE_JOINT_HEIGHT_IN: f64 = 6.5;
+
+pub fn figure_builder_joint() -> FigureBuilder {
+    Figure::builder()
+        .size(Size::inches(FIGURE_JOINT_WIDTH_IN, FIGURE_JOINT_HEIGHT_IN))
+        .label_fontsize(LABEL_FONTSIZE)
+        .tick_fontsize(TICK_FONTSIZE)
+        .title_fontsize(TITLE_FONTSIZE)
+        .gaps(0.04, 0.04)
+        .constrained_layout(true)
 }
 
 pub fn trace_line_style(color_name: &str, alpha: f64) -> LineStyle {

@@ -1,7 +1,8 @@
 //! Per-sample results under `results/<sample>/` (XLSX only).
 //!
-//! `analysis/Pos{n}/` is the CSV-only scratch layout. Plot stages concat by
-//! named `samples[]` and write XLSX (no CSV) plus PNG plots.
+//! `analysis/Pos{n}/` is the CSV-only scratch layout. `publish_sample_*_xlsx`
+//! writes XLSX packs. Plot stages write PNG only; CLI `plot-*` and pipeline
+//! call the publishers explicitly so a one-shot still produces tables + plots.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -146,11 +147,7 @@ pub fn publish_sample_traces_xlsx(
             let pos = pos_index
                 .and_then(|index| parse_f64(&row[index]).map(|value| value as i64))
                 .unwrap_or(position as i64);
-            let mut out = vec![
-                slide_channel.to_string(),
-                sample.clone(),
-                pos.to_string(),
-            ];
+            let mut out = vec![slide_channel.to_string(), sample.clone(), pos.to_string()];
             if multi_channel {
                 out.push(signal.to_string());
             }
@@ -259,7 +256,8 @@ pub fn concat_kind_rows(
             grouped.entry(*slide_channel).or_default().push(out_row);
         }
     }
-    let headers = out_headers.ok_or_else(|| format!("No analysis {kind} rows matched named samples[]"))?;
+    let headers =
+        out_headers.ok_or_else(|| format!("No analysis {kind} rows matched named samples[]"))?;
     Ok((headers, grouped))
 }
 

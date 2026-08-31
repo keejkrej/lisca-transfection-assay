@@ -1,7 +1,8 @@
 """Per-sample results under ``results/<sample>/`` (XLSX + PNG).
 
-``analysis/Pos{n}/`` is the CSV-only scratch layout. Plot stages concat by
-``assay.json`` ``samples[]`` and write XLSX (no CSV) plus PNG plots.
+``analysis/Pos{n}/`` is the CSV-only scratch layout. ``publish_sample_*_xlsx``
+writes XLSX packs. Plot services write PNG only; CLI ``plot-*`` and pipeline
+call the publishers explicitly so a one-shot still produces tables + plots.
 """
 
 from __future__ import annotations

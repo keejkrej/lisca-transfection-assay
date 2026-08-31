@@ -53,6 +53,7 @@ pub use auc::run_auc;
 pub use fit::{default_fit_jobs, run_fit};
 pub use pipeline::{run_pipeline, run_pipeline_with_mode, run_sync, run_sync_with_mode};
 pub use plot_stages::{run_plot_auc, run_plot_fit, run_plot_timeseries, DEFAULT_PLOT_COLUMNS};
+pub use sample_pack::{publish_sample_tables_xlsx, publish_sample_traces_xlsx};
 pub use segment::{
     default_jobs, resolve_pattern_seg_model_dir, run_segment, SegmentBackend, SegmentOptions,
 };

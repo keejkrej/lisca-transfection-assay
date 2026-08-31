@@ -2,13 +2,9 @@ use std::path::Path;
 
 use crate::csv_io::{column_index, read_csv};
 use crate::plot::{percentile_ylim, shared_summary_ylim, write_metric_plots};
-use crate::sample_pack::{
-    publish_sample_traces_xlsx, sample_pack_dir, sample_pack_dirnames,
-};
+use crate::sample_pack::{sample_pack_dir, sample_pack_dirnames};
 use crate::slide::{require_named_samples, SlideMapping};
-use crate::timeseries::{
-    discover_timeseries_csvs, load_trace_panels_by_sample,
-};
+use crate::timeseries::{discover_timeseries_csvs, load_trace_panels_by_sample};
 
 pub fn run_plot_timeseries(
     workspace: &Path,
@@ -21,7 +17,6 @@ pub fn run_plot_timeseries(
     }
     let named = require_named_samples(mapping)?;
     let _ = columns;
-    publish_sample_traces_xlsx(workspace, &named)?;
     let dirnames = sample_pack_dirnames(&named)?;
     let csvs = discover_timeseries_csvs(&workspace.join("analysis"))?;
     let corrected_panels = load_trace_panels_by_sample(&csvs, "corrected", &named)?;

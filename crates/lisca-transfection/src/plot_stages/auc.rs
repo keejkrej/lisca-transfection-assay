@@ -8,12 +8,11 @@ use crate::plot::{
     boxplot_tick_label, boxplot_x_axis_label, figure_builder_single, percentile_ylim, save_figure,
     slide_channel_labels, SAVE_PAD_SINGLE_INCHES,
 };
-use crate::sample_pack::{concat_kind_rows, publish_sample_tables_xlsx};
+use crate::sample_pack::concat_kind_rows;
 use crate::slide::{require_named_samples, SlideMapping};
 
 pub fn run_plot_auc(workspace: &Path, mapping: &SlideMapping) -> Result<(), String> {
     let named = require_named_samples(mapping)?;
-    publish_sample_tables_xlsx(workspace, &named, "auc")?;
     let labels = slide_channel_labels(&named);
     let (headers, grouped) = concat_kind_rows(workspace, &named, "auc")?;
     let auc_index = headers

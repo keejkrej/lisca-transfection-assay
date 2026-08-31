@@ -5,8 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from transfection.core import load_assay_for_workspace, require_interval_minutes
+from transfection.core import (
+    load_assay_for_workspace,
+    require_interval_minutes,
+    require_named_samples,
+)
 from transfection.core.constants import ANALYSIS_DIRNAME, RESULTS_DIRNAME
+from transfection.core.sample_pack import publish_sample_tables_xlsx, publish_sample_traces_xlsx
 from transfection.services import auc, fit, plot_auc, plot_fit, plot_timeseries, segment, timeseries
 
 
@@ -53,11 +58,15 @@ def run_pipeline(
         interval=interval,
         max_onset_minutes=max_onset,
     )
+    mapping = require_named_samples(config)
+    publish_sample_traces_xlsx(workspace, mapping)
     plot_timeseries.run_plot_timeseries(
         metrics_dir=workspace,
         interval=interval,
     )
+    publish_sample_tables_xlsx(workspace, mapping, "auc")
     plot_auc.run_plot_auc(auc_csv=workspace)
+    publish_sample_tables_xlsx(workspace, mapping, "fit")
     plot_fit.run_plot_fit(workspace, output=None, interval=interval, columns=None)
     return PipelineResult(
         workspace=workspace,

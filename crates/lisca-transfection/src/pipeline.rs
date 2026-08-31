@@ -10,8 +10,9 @@ use crate::assay::{interval_minutes, max_onset_minutes, skip_segment, AssayJsonF
 use crate::auc::run_auc;
 use crate::fit::{default_fit_jobs, run_fit};
 use crate::plot_stages::{run_plot_auc, run_plot_fit, run_plot_timeseries};
+use crate::sample_pack::{publish_sample_tables_xlsx, publish_sample_traces_xlsx};
 use crate::segment::{run_segment, SegmentOptions};
-use crate::slide::build_slide_mapping;
+use crate::slide::{build_slide_mapping, require_named_samples};
 use crate::timeseries_stage::{default_timeseries_jobs, run_timeseries_with_mode};
 
 /// Full pipeline driven by `assay.json` (`analysis.skipSegment` selects mode).
@@ -43,8 +44,12 @@ pub fn run_pipeline_with_mode(
     run_auc(workspace, interval)?;
     let max_onset = max_onset_minutes(assay_json);
     run_fit(workspace, interval, max_onset, default_fit_jobs())?;
+    let named = require_named_samples(&mapping)?;
+    publish_sample_traces_xlsx(workspace, &named)?;
     run_plot_timeseries(workspace, &mapping, interval, None)?;
+    publish_sample_tables_xlsx(workspace, &named, "auc")?;
     run_plot_auc(workspace, &mapping)?;
+    publish_sample_tables_xlsx(workspace, &named, "fit")?;
     run_plot_fit(workspace, &mapping, interval, None)?;
     Ok(())
 }

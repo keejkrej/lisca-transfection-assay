@@ -14,7 +14,8 @@ use lisca_transfection::array::{masked_roi_stats, trapezoidal_integral};
 use lisca_transfection::assay::AssayJsonFile;
 use lisca_transfection::slide::build_slide_mapping;
 use lisca_transfection::{
-    run_auc, run_fit, run_plot_auc, run_plot_fit, run_plot_timeseries, run_timeseries,
+    publish_sample_tables_xlsx, publish_sample_traces_xlsx, require_named_samples, run_auc,
+    run_fit, run_plot_auc, run_plot_fit, run_plot_timeseries, run_timeseries,
 };
 use tempfile::tempdir;
 
@@ -247,6 +248,7 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &[("--interval", &interval), ("--max-onset-minutes", "0")],
     );
     let python_fit = fs::read_to_string(analysis_pos.join("fit.csv")).expect("python fit");
+    set_positive_onset_for_log_plots(&analysis_pos.join("fit.csv"));
 
     run_transfection(
         &transfection_root,
@@ -267,7 +269,8 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         "python plot-auc",
     );
     assert_frozen_workspace_tree(&fixture.root, "python");
-    let python_traces_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "traces"));
+    let python_traces_xlsx =
+        dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "traces"));
     let python_auc_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "auc"));
     let python_fit_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "fit"));
     remove_result_outputs(&fixture.root);
@@ -288,9 +291,14 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         FIT_CLI_REL_TOL,
     );
 
+    set_positive_onset_for_log_plots(&analysis_pos.join("fit.csv"));
+    let named = require_named_samples(&mapping).expect("named samples");
+    publish_sample_traces_xlsx(&fixture.root, &named).expect("traces xlsx");
     run_plot_timeseries(&fixture.root, &mapping, INTERVAL_MINUTES, None)
         .expect("rust plot-timeseries");
+    publish_sample_tables_xlsx(&fixture.root, &named, "auc").expect("auc xlsx");
     run_plot_auc(&fixture.root, &mapping).expect("rust plot-auc");
+    publish_sample_tables_xlsx(&fixture.root, &named, "fit").expect("fit xlsx");
     run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("rust plot-fit");
     assert_nonempty_png(&fit_scatter_png(&fixture.root), "rust plot-fit");
     assert_nonempty_png(
@@ -300,7 +308,16 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
     compare_csv_numeric_str(
         &dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "traces")),
         &python_traces_xlsx,
-        &["slide_channel", "pos", "roi", "t", "area", "background", "sum", "corrected"],
+        &[
+            "slide_channel",
+            "pos",
+            "roi",
+            "t",
+            "area",
+            "background",
+            "sum",
+            "corrected",
+        ],
         AUC_REL_TOL,
     );
     compare_csv_numeric_str(
@@ -334,6 +351,7 @@ fn plot_fit_writes_expression_rate_vs_onset_time_png() {
     let mapping = build_slide_mapping(&assay).expect("mapping");
     run_timeseries(&fixture.root, &mapping, 1).expect("timeseries");
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("fit");
+    set_positive_onset_for_log_plots(&fixture.root.join("analysis").join("Pos1").join("fit.csv"));
     run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-fit");
 
     let scatter = fit_scatter_png(&fixture.root);
@@ -342,7 +360,12 @@ fn plot_fit_writes_expression_rate_vs_onset_time_png() {
         scatter.metadata().expect("scatter metadata").len() > 0,
         "scatter PNG should be non-empty"
     );
-    for name in ["traces_fit.png", "traces_fit_shared_y.png", "fit.xlsx", FIT_SCATTER_PNG] {
+    for name in [
+        "traces_fit.png",
+        "traces_fit_shared_y.png",
+        FIT_SCATTER_PNG,
+        FIT_LIFETIME_SCATTER_PNG,
+    ] {
         let path = sample_results_dir(&fixture.root).join(name);
         assert!(
             path.is_file(),
@@ -350,6 +373,14 @@ fn plot_fit_writes_expression_rate_vs_onset_time_png() {
             path.display()
         );
     }
+    assert!(
+        !sample_results_dir(&fixture.root).join("fit.xlsx").exists(),
+        "plot-fit service must not write xlsx"
+    );
+    assert!(
+        !sample_results_dir(&fixture.root).join("traces.xlsx").exists(),
+        "plot-fit service must not write traces.xlsx"
+    );
     assert_forbidden_result_files(&fixture.root);
     for name in [
         "onset_time.png",
@@ -371,7 +402,43 @@ fn plot_fit_writes_expression_rate_vs_onset_time_png() {
     }
 }
 
+#[test]
+fn plot_services_write_png_not_xlsx() {
+    let temp = tempdir().expect("tempdir");
+    let fixture = SyntheticWorkspace::build(temp.path());
+    let assay = read_assay_json(&fixture.root);
+    let mapping = build_slide_mapping(&assay).expect("mapping");
+    run_timeseries(&fixture.root, &mapping, 1).expect("timeseries");
+    run_auc(&fixture.root, INTERVAL_MINUTES).expect("auc");
+    run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("fit");
+    set_positive_onset_for_log_plots(&fixture.root.join("analysis").join("Pos1").join("fit.csv"));
+    run_plot_timeseries(&fixture.root, &mapping, INTERVAL_MINUTES, None)
+        .expect("plot-timeseries");
+    run_plot_auc(&fixture.root, &mapping).expect("plot-auc");
+    run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-fit");
+    let sample_dir = sample_results_dir(&fixture.root);
+    for name in SAMPLE_XLSX {
+        assert!(
+            !sample_dir.join(name).exists(),
+            "plot services must not write {name}"
+        );
+    }
+    for name in [
+        "traces.png",
+        "traces_fit.png",
+        FIT_SCATTER_PNG,
+        FIT_LIFETIME_SCATTER_PNG,
+    ] {
+        assert_nonempty_png(&sample_dir.join(name), "plot service png");
+    }
+    assert_nonempty_png(
+        &fixture.root.join("results").join("auc.png"),
+        "plot-auc png",
+    );
+}
+
 const FIT_SCATTER_PNG: &str = "expression_rate_vs_onset_time.png";
+const FIT_LIFETIME_SCATTER_PNG: &str = "expression_rate_vs_mrna_lifetime.png";
 const SAMPLE_DIRNAME: &str = "condA";
 
 const ANALYSIS_CSVS: &[&str] = &["ch1.csv", "auc.csv", "fit.csv"];
@@ -386,6 +453,7 @@ const SAMPLE_PNGS: &[&str] = &[
     "traces_fit.png",
     "traces_fit_shared_y.png",
     "expression_rate_vs_onset_time.png",
+    "expression_rate_vs_mrna_lifetime.png",
 ];
 const ROOT_PNGS: &[&str] = &[
     "auc.png",
@@ -404,6 +472,7 @@ const FORBIDDEN_NAMES: &[&str] = &[
     "protein_lifetime_log.png",
     "mrna_lifetime_log.png",
     "expression_rate_vs_onset_time_shared_y.png",
+    "expression_rate_vs_mrna_lifetime_shared_y.png",
     "auc.csv",
     "fit.csv",
 ];
@@ -427,7 +496,8 @@ fn assert_frozen_workspace_tree(workspace: &Path, side: &str) {
             let path = entry.expect("analysis entry").path();
             let ext = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
             assert_eq!(
-                ext, "csv",
+                ext,
+                "csv",
                 "{side}: analysis/PosN must be csv only, found {}",
                 path.display()
             );
@@ -465,7 +535,10 @@ fn assert_no_csv_under_results(workspace: &Path, side: &str) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("csv") {
-            panic!("{side}: must not write csv under results/: {}", path.display());
+            panic!(
+                "{side}: must not write csv under results/: {}",
+                path.display()
+            );
         }
         if path.is_dir() {
             if let Ok(children) = fs::read_dir(&path) {
@@ -506,6 +579,40 @@ fn sample_xlsx(workspace: &Path, kind: &str) -> PathBuf {
 
 fn fit_scatter_png(workspace: &Path) -> PathBuf {
     sample_results_dir(workspace).join(FIT_SCATTER_PNG)
+}
+
+/// The synthetic kinetic has onset fixed at 0 (`max_onset_minutes = 0`). Log-log
+/// joint plots drop non-positive points, so rewrite onset to a positive value
+/// after the analysis CSV comparison so plot-fit can write the onset scatter.
+fn set_positive_onset_for_log_plots(fit_csv: &Path) {
+    let contents = fs::read_to_string(fit_csv).expect("read fit.csv");
+    let mut reader = ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(contents.as_bytes());
+    let headers = reader.headers().expect("headers").clone();
+    let onset_index = headers
+        .iter()
+        .position(|header| header == "onset_time")
+        .expect("onset_time column");
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    for record in reader.records() {
+        let record = record.expect("record");
+        let mut row: Vec<String> = record.iter().map(str::to_string).collect();
+        if onset_index < row.len() {
+            let value: f64 = row[onset_index].parse().unwrap_or(0.0);
+            if value <= 0.0 {
+                row[onset_index] = INTERVAL_MINUTES.to_string();
+            }
+        }
+        rows.push(row);
+    }
+    let mut out = headers.iter().collect::<Vec<_>>().join(",");
+    out.push('\n');
+    for row in rows {
+        out.push_str(&row.join(","));
+        out.push('\n');
+    }
+    fs::write(fit_csv, out).expect("write fit.csv");
 }
 
 fn assert_nonempty_png(path: &Path, side: &str) {

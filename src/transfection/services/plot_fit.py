@@ -9,6 +9,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from transfection import core as plot_layout
 from transfection.services import plot_timeseries
@@ -25,7 +26,6 @@ from transfection.core.sample_pack import (
     concat_sample_tables,
     concat_sample_traces,
     labels_from_sample_column,
-    publish_sample_tables_xlsx,
     sample_pack_dir,
     sample_pack_dirnames,
 )
@@ -46,6 +46,17 @@ FIT_TRACE_PARAMETERS = (
     "expression_amplitude",
 )
 
+# Log-log joint plots (scatter + attached x/y histograms). Percentiles of the
+# positive bulk, then pad in log10 space so the cloud sits in the frame center.
+JOINT_FIGSIZE_IN = (6.5, 6.5)
+JOINT_PERCENTILE_LO = 5.0
+JOINT_PERCENTILE_HI = 95.0
+JOINT_LOG10_PAD = 0.4
+JOINT_HIST_BINS = 18
+JOINT_HIST_FRAC = 0.22
+JOINT_HIST_PAD = 0.08
+JOINT_HIST_ALPHA = 0.75
+
 
 def run_plot_fit(
     fit_csv: Path,
@@ -63,7 +74,7 @@ def run_plot_fit(
     traces = concat_sample_traces(workspace, mapping)
     dirnames = sample_pack_dirnames(mapping)
     names = {sc: entry.sample_name for sc, entry in mapping.items()}
-    written_paths: list[Path] = list(publish_sample_tables_xlsx(workspace, mapping, "fit"))
+    written_paths: list[Path] = []
     loaded_tables: list[pd.DataFrame] = []
     _ = columns
     corrected_arrays = [
@@ -96,13 +107,32 @@ def run_plot_fit(
                 shared_ylim=shared_fit_ylim,
             )
         )
-        scatter_plot = dest_dir / "expression_rate_vs_onset_time.png"
-        write_expression_rate_vs_onset_scatter(
+        onset_scatter = dest_dir / "expression_rate_vs_onset_time.png"
+        if _write_kinetic_joint_scatter(
             df,
-            scatter_plot,
+            onset_scatter,
+            x_column="onset_time",
+            y_column="expression_rate",
+            xlabel="onset time (min)",
+            ylabel="expression rate",
+            empty_message="No successful finite positive fits available to plot expression rate vs onset time",
             slide_channel_names=names_for_sample,
-        )
-        written_paths.append(scatter_plot)
+            missing_ok=True,
+        ):
+            written_paths.append(onset_scatter)
+        lifetime_scatter = dest_dir / "expression_rate_vs_mrna_lifetime.png"
+        if _write_kinetic_joint_scatter(
+            df,
+            lifetime_scatter,
+            x_column="mrna_lifetime",
+            y_column="expression_rate",
+            xlabel="mRNA lifetime",
+            ylabel="expression rate",
+            empty_message="No successful finite positive fits available to plot expression rate vs mRNA lifetime",
+            slide_channel_names=names_for_sample,
+            missing_ok=True,
+        ):
+            written_paths.append(lifetime_scatter)
     if loaded_tables:
         combined = pd.concat(loaded_tables, ignore_index=True)
         names_all = {**names, **labels_from_sample_column(combined)}
@@ -176,6 +206,11 @@ def default_trace_plot_path(fit_csv: Path, output: Path | None) -> Path:
 def default_scatter_plot_path(fit_csv: Path, output: Path | None) -> Path:
     destination_dir = fit_csv.parent if output is None else output.resolve()
     return destination_dir / "expression_rate_vs_onset_time.png"
+
+
+def default_mrna_lifetime_scatter_plot_path(fit_csv: Path, output: Path | None) -> Path:
+    destination_dir = fit_csv.parent if output is None else output.resolve()
+    return destination_dir / "expression_rate_vs_mrna_lifetime.png"
 
 
 def write_fit_boxplot(
@@ -259,20 +294,50 @@ def pearson_annotation(r: float | None, n: int) -> str:
     return f"r = {r:.2f}\nn = {n}"
 
 
-def write_expression_rate_vs_onset_scatter(
-    df: pd.DataFrame,
-    output_plot: Path,
-    *,
-    slide_channel_names: dict[int, str],
-    columns: int | None = None,
-) -> None:
-    _ = columns
-    scatter_df = successful_finite_fit_df(df, "onset_time", "expression_rate")
-    if scatter_df.empty:
-        raise ValueError("No successful finite fits available to plot expression rate vs onset time")
+def log_joint_limits(values: np.ndarray) -> tuple[float, float]:
+    """Log-axis limits that keep the positive bulk centered in the frame.
 
-    x = scatter_df["onset_time"].to_numpy(dtype=float)
-    y = scatter_df["expression_rate"].to_numpy(dtype=float)
+    Uses the 5th–95th percentile of finite *positive* values, then pads
+    ``JOINT_LOG10_PAD`` decades on each side so the cloud sits in the middle
+    instead of filling the axes. Limits are always > 0.
+    """
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite) & (finite > 0)]
+    if finite.size == 0:
+        return (1.0, 10.0)
+    if finite.size == 1:
+        center = float(finite[0])
+        return (center / 10.0**JOINT_LOG10_PAD, center * 10.0**JOINT_LOG10_PAD)
+    low, high = np.percentile(finite, [JOINT_PERCENTILE_LO, JOINT_PERCENTILE_HI])
+    low_f, high_f = float(low), float(high)
+    if low_f <= 0.0 or high_f <= low_f:
+        center = float(np.exp(np.mean(np.log(finite))))
+        return (center / 10.0**JOINT_LOG10_PAD, center * 10.0**JOINT_LOG10_PAD)
+    return (
+        10.0 ** (math.log10(low_f) - JOINT_LOG10_PAD),
+        10.0 ** (math.log10(high_f) + JOINT_LOG10_PAD),
+    )
+
+
+def positive_finite_xy(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Drop non-finite or non-positive pairs; log axes cannot show zeros."""
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    mask = np.isfinite(x) & np.isfinite(y) & (x > 0) & (y > 0)
+    return x[mask], y[mask]
+
+
+def _show_all_spines(ax: plt.Axes, *, color: str = "black", linewidth: float = 0.8) -> None:
+    for side in ("top", "right", "bottom", "left"):
+        ax.spines[side].set_visible(True)
+        ax.spines[side].set_color(color)
+        ax.spines[side].set_linewidth(linewidth)
+
+
+def _scatter_title_color(
+    scatter_df: pd.DataFrame,
+    slide_channel_names: dict[int, str],
+) -> tuple[str, str]:
     if "slide_channel" in scatter_df.columns:
         slide_channel = int(scatter_df["slide_channel"].iloc[0])
         label = slide_channel_names.get(slide_channel, f"slide channel {slide_channel}")
@@ -281,16 +346,37 @@ def write_expression_rate_vs_onset_scatter(
         label = next(iter(slide_channel_names.values()), "sample")
         title = label
     color, _trace_alpha = trace_color_alpha_from_fluor_name(label)
+    return title, color
 
-    fig, ax = plt.subplots(figsize=plot_layout.FIGURE_SIZE_SINGLE_IN)
-    ax.scatter(x, y, s=18, alpha=0.55, color=color)
-    ax.set_title(title)
-    ax.set_xlabel("onset time (min)")
-    ax.set_ylabel("expression rate")
-    x_low, x_high = plot_timeseries.percentile_ylim(x)
-    y_low, y_high = plot_timeseries.percentile_ylim(y)
+
+def make_log_joint_figure(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    xlabel: str,
+    ylabel: str,
+    color: str,
+    title: str,
+) -> plt.Figure:
+    """Scatter in the center with log-log axes and attached x/y histograms."""
+    x_low, x_high = log_joint_limits(x)
+    y_low, y_high = log_joint_limits(y)
+    fig, ax = plt.subplots(figsize=JOINT_FIGSIZE_IN)
+    divider = make_axes_locatable(ax)
+    ax_top = divider.append_axes("top", size=f"{JOINT_HIST_FRAC * 100:.0f}%", pad=JOINT_HIST_PAD, sharex=ax)
+    ax_right = divider.append_axes(
+        "right", size=f"{JOINT_HIST_FRAC * 100:.0f}%", pad=JOINT_HIST_PAD, sharey=ax
+    )
+
+    ax.scatter(x, y, s=18, alpha=0.55, color=color, zorder=3, linewidths=0)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
     ax.set_xlim(x_low, x_high)
     ax.set_ylim(y_low, y_high)
+    ax.grid(False)
+    _show_all_spines(ax)
     ax.text(
         0.05,
         0.95,
@@ -299,9 +385,117 @@ def write_expression_rate_vs_onset_scatter(
         va="top",
         ha="left",
     )
+
+    x_bins = np.logspace(np.log10(x_low), np.log10(x_high), JOINT_HIST_BINS + 1)
+    y_bins = np.logspace(np.log10(y_low), np.log10(y_high), JOINT_HIST_BINS + 1)
+    ax_top.hist(x, bins=x_bins, color=color, alpha=JOINT_HIST_ALPHA, edgecolor=color, linewidth=0)
+    ax_right.hist(
+        y,
+        bins=y_bins,
+        orientation="horizontal",
+        color=color,
+        alpha=JOINT_HIST_ALPHA,
+        edgecolor=color,
+        linewidth=0,
+    )
+    ax_top.set_title(title)
+    ax_top.tick_params(axis="x", labelbottom=False, bottom=False)
+    ax_right.tick_params(axis="y", labelleft=False, left=False)
+    for marginal_ax in (ax_top, ax_right):
+        marginal_ax.set_facecolor("white")
+        marginal_ax.grid(False)
+        _show_all_spines(marginal_ax)
+    return fig
+
+
+def write_log_joint_scatter(
+    x: np.ndarray,
+    y: np.ndarray,
+    output_plot: Path,
+    *,
+    xlabel: str,
+    ylabel: str,
+    color: str,
+    title: str,
+) -> None:
+    fig = make_log_joint_figure(x, y, xlabel=xlabel, ylabel=ylabel, color=color, title=title)
     output_plot.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_plot, dpi=plot_layout.FIGURE_DPI, bbox_inches="tight")
     plt.close(fig)
+
+
+def _write_kinetic_joint_scatter(
+    df: pd.DataFrame,
+    output_plot: Path,
+    *,
+    x_column: str,
+    y_column: str,
+    xlabel: str,
+    ylabel: str,
+    empty_message: str,
+    slide_channel_names: dict[int, str],
+    missing_ok: bool = False,
+) -> bool:
+    scatter_df = successful_finite_fit_df(df, x_column, y_column)
+    x, y = positive_finite_xy(
+        scatter_df[x_column].to_numpy(dtype=float) if not scatter_df.empty else np.array([]),
+        scatter_df[y_column].to_numpy(dtype=float) if not scatter_df.empty else np.array([]),
+    )
+    if x.size == 0:
+        if missing_ok:
+            return False
+        raise ValueError(empty_message)
+    title, color = _scatter_title_color(scatter_df, slide_channel_names)
+    write_log_joint_scatter(
+        x,
+        y,
+        output_plot,
+        xlabel=xlabel,
+        ylabel=ylabel,
+        color=color,
+        title=title,
+    )
+    return True
+
+
+def write_expression_rate_vs_onset_scatter(
+    df: pd.DataFrame,
+    output_plot: Path,
+    *,
+    slide_channel_names: dict[int, str],
+    columns: int | None = None,
+) -> None:
+    _ = columns
+    _write_kinetic_joint_scatter(
+        df,
+        output_plot,
+        x_column="onset_time",
+        y_column="expression_rate",
+        xlabel="onset time (min)",
+        ylabel="expression rate",
+        empty_message="No successful finite positive fits available to plot expression rate vs onset time",
+        slide_channel_names=slide_channel_names,
+    )
+
+
+def write_expression_rate_vs_mrna_lifetime_scatter(
+    df: pd.DataFrame,
+    output_plot: Path,
+    *,
+    slide_channel_names: dict[int, str],
+    columns: int | None = None,
+) -> None:
+    _ = columns
+    _write_kinetic_joint_scatter(
+        df,
+        output_plot,
+        x_column="mrna_lifetime",
+        y_column="expression_rate",
+        xlabel="mRNA lifetime",
+        ylabel="expression rate",
+        empty_message="No successful finite positive fits available to plot expression rate vs mRNA lifetime",
+        slide_channel_names=slide_channel_names,
+    )
 
 
 def fitted_trace_values(times_minutes: np.ndarray, fit_row: pd.Series) -> np.ndarray:
