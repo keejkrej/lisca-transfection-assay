@@ -36,10 +36,10 @@ from transfection.core.workspace import analysis_position_table_csv
 OUTPUT_COLUMNS = (
     "roi",
     "baseline_intensity",
-    "protein_lifetime",
-    "mrna_lifetime",
     "onset_time",
     "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
     "success",
 )
 OUTPUT_COLUMNS_WITH_CHANNEL = ("channel", *OUTPUT_COLUMNS)

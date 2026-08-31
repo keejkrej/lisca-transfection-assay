@@ -494,10 +494,10 @@ const AUC_ANALYSIS_HEADERS: &[&str] = &["roi", "auc"];
 const FIT_ANALYSIS_HEADERS: &[&str] = &[
     "roi",
     "baseline_intensity",
-    "protein_lifetime",
-    "mrna_lifetime",
     "onset_time",
     "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
     "success",
 ];
 const TRACE_XLSX_HEADERS: &[&str] = &["pos", "roi", "t", "area", "background", "sum", "corrected"];
@@ -506,10 +506,10 @@ const FIT_XLSX_HEADERS: &[&str] = &[
     "pos",
     "roi",
     "baseline_intensity",
-    "protein_lifetime",
-    "mrna_lifetime",
     "onset_time",
     "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
     "success",
 ];
 const DROPPED_TABLE_COLUMNS: &[&str] = &[

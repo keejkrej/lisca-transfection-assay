@@ -65,10 +65,10 @@ FIT_TABLE_COLUMNS = (
     "pos",
     "roi",
     "baseline_intensity",
-    "protein_lifetime",
-    "mrna_lifetime",
     "onset_time",
     "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
     "success",
 )
 FIT_TABLE_COLUMNS_WITH_CHANNEL = (
@@ -76,10 +76,10 @@ FIT_TABLE_COLUMNS_WITH_CHANNEL = (
     "channel",
     "roi",
     "baseline_intensity",
-    "protein_lifetime",
-    "mrna_lifetime",
     "onset_time",
     "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
     "success",
 )
 

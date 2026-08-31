@@ -50,20 +50,10 @@ shared-y figure each):
 - `auc.png`, `expression_rate.png`, `onset_time.png`,
   `baseline_intensity.png`, `protein_lifetime.png`, `mrna_lifetime.png`
 
-CSV / table contract:
-
-- Analysis traces: `roi,t,area,background,sum,corrected` (no `pos` /
-  `slide_channel`; those are joined later from the path + `assay.json`).
-- Analysis AUC / fit: `roi,…` (`channel` only when that Pos has multiple
-  signal CSVs). `pos` is the folder name. Fit columns:
-  `baseline_intensity`, `protein_lifetime`, `mrna_lifetime`, `onset_time`,
-  `expression_rate`, `success`. Lifetimes are half-lives
-  \(\ln(2)/\mathrm{rate}\) in minutes. Rates \(\beta,\delta\) and
-  `expression_amplitude` are reconstructed at plot time and are **not**
-  written. No `*_decay_rate` aliases.
-- Results XLSX: concat by named `samples[]`, with `pos` prefixed. No
-  `slide_channel` or `sample` (the pack folder is the identity). Traces keep
-  `background` and `sum` for QC.
+CSV / table contract: **`docs/schema.md`** (locked headers). Parity compares
+those columns. Lifetimes are half-lives \(\ln(2)/\mathrm{rate}\) in minutes.
+Rates \(\beta,\delta\) and amplitude are reconstructed at plot time and are
+**not** written. No `*_decay_rate` aliases.
 
 ## How to run
 

@@ -18,10 +18,10 @@ def test_output_columns_are_paper_observables() -> None:
     assert OUTPUT_COLUMNS == (
         "roi",
         "baseline_intensity",
-        "protein_lifetime",
-        "mrna_lifetime",
         "onset_time",
         "expression_rate",
+        "mrna_lifetime",
+        "protein_lifetime",
         "success",
     )
     assert "protein_degradation_rate" not in OUTPUT_COLUMNS

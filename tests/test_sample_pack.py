@@ -169,10 +169,10 @@ def test_publish_fit_xlsx_omits_internal_kinetic_columns(tmp_path: Path) -> None
         "pos",
         "roi",
         "baseline_intensity",
-        "protein_lifetime",
-        "mrna_lifetime",
         "onset_time",
         "expression_rate",
+        "mrna_lifetime",
+        "protein_lifetime",
         "success",
     ]
     for dropped in (

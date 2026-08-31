@@ -440,10 +440,10 @@ fn fit_csv_records(rows: &[&FitCsvRow], include_channel: bool) -> (Vec<String>, 
         [
             "roi",
             "baseline_intensity",
-            "protein_lifetime",
-            "mrna_lifetime",
             "onset_time",
             "expression_rate",
+            "mrna_lifetime",
+            "protein_lifetime",
             "success",
         ]
         .into_iter()
@@ -459,10 +459,10 @@ fn fit_csv_records(rows: &[&FitCsvRow], include_channel: bool) -> (Vec<String>, 
             values.extend([
                 row.roi.to_string(),
                 format_optional(row.baseline_intensity),
-                format_optional(row.protein_lifetime),
-                format_optional(row.mrna_lifetime),
                 format_optional(row.onset_time),
                 format_optional(row.expression_rate),
+                format_optional(row.mrna_lifetime),
+                format_optional(row.protein_lifetime),
                 if row.success { "true" } else { "false" }.to_string(),
             ]);
             values

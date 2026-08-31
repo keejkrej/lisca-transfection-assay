@@ -32,10 +32,10 @@ const FIT_XLSX_HEADERS: [&str; 8] = [
     "pos",
     "roi",
     "baseline_intensity",
-    "protein_lifetime",
-    "mrna_lifetime",
     "onset_time",
     "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
     "success",
 ];
 const FIT_XLSX_HEADERS_WITH_CHANNEL: [&str; 9] = [
@@ -43,10 +43,10 @@ const FIT_XLSX_HEADERS_WITH_CHANNEL: [&str; 9] = [
     "channel",
     "roi",
     "baseline_intensity",
-    "protein_lifetime",
-    "mrna_lifetime",
     "onset_time",
     "expression_rate",
+    "mrna_lifetime",
+    "protein_lifetime",
     "success",
 ];
 
