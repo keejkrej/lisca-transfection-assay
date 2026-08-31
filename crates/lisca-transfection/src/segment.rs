@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 use tiff::encoder::{colortype, TiffEncoder};
@@ -11,6 +11,8 @@ use crate::roi_stack::{
 use crate::slide::SlideMapping;
 
 use super::image_ops::segment_frame;
+#[cfg(feature = "onnx")]
+use crate::segment_onnx::{OnnxSegmentConfig, OnnxSegmenter};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PositionSegmentResult {
@@ -110,14 +112,139 @@ fn run_segment_otsu(
     summarize_results(results)
 }
 
+/// Directory next to this crate that holds downloaded assay models (`models/`).
+fn workspace_models_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models")
+}
+
+fn resolve_model_path(
+    env_var: &str,
+    extra_candidates: impl IntoIterator<Item = PathBuf>,
+) -> Result<PathBuf, String> {
+    if let Ok(env_path) = std::env::var(env_var) {
+        let path = PathBuf::from(env_path.trim());
+        if path.join("model.onnx").is_file() {
+            return Ok(path);
+        }
+        if path.file_name().is_some_and(|name| name == "model.onnx") && path.is_file() {
+            return Ok(path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(".")));
+        }
+        if path.is_dir() && path.join("onnx/model.onnx").is_file() {
+            return Ok(path.join("onnx"));
+        }
+        return Err(format!(
+            "{env_var} is set but no model.onnx found at {}",
+            path.display()
+        ));
+    }
+
+    let candidates = extra_candidates.into_iter().collect::<Vec<_>>();
+    for candidate in &candidates {
+        if candidate.join("model.onnx").is_file() {
+            return Ok(candidate.clone());
+        }
+        if candidate.join("onnx/model.onnx").is_file() {
+            return Ok(candidate.join("onnx"));
+        }
+    }
+
+    let checked = candidates
+        .iter()
+        .map(|candidate| candidate.join("model.onnx").display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "model.onnx not found: set {env_var} or place it at one of: {checked} \
+         (bash scripts/fetch-pattern-seg-model.sh; see models/single-cell-pattern-unet/README.md)"
+    ))
+}
+
+/// Resolve the pattern U-Net ONNX directory (`model.onnx`).
+///
+/// Search order: explicit path, `LISCA_PATTERN_SEG_MODEL` (legacy
+/// `LISCA_GE_SEG_MODEL`), then `models/single-cell-pattern-unet/` in this repo.
+/// lisca / Studio can set the env var; cloning lisca is not required.
+pub fn resolve_pattern_seg_model_dir(explicit: Option<&Path>) -> Result<PathBuf, String> {
+    if let Some(path) = explicit {
+        if path.join("model.onnx").is_file() {
+            return Ok(path.to_path_buf());
+        }
+        if path.file_name().is_some_and(|name| name == "model.onnx") && path.is_file() {
+            return Ok(path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(".")));
+        }
+        if path.is_dir() && path.join("onnx/model.onnx").is_file() {
+            return Ok(path.join("onnx"));
+        }
+        return Err(format!(
+            "ONNX segment model not found at {} (expected model.onnx)",
+            path.display()
+        ));
+    }
+
+    let candidates = [
+        workspace_models_dir().join("single-cell-pattern-unet/onnx"),
+        workspace_models_dir().join("single-cell-pattern-unet"),
+        PathBuf::from("models/single-cell-pattern-unet/onnx"),
+        PathBuf::from("models/single-cell-pattern-unet"),
+    ];
+    let env_var = if std::env::var("LISCA_PATTERN_SEG_MODEL").is_ok() {
+        "LISCA_PATTERN_SEG_MODEL"
+    } else if std::env::var("LISCA_GE_SEG_MODEL").is_ok() {
+        "LISCA_GE_SEG_MODEL"
+    } else {
+        "LISCA_PATTERN_SEG_MODEL"
+    };
+    resolve_model_path(env_var, candidates)
+}
+
+#[cfg(feature = "onnx")]
+fn run_segment_onnx(
+    workspace: &Path,
+    mapping: &SlideMapping,
+    options: &SegmentOptions,
+) -> Result<(), String> {
+    let tasks = collect_tasks(mapping)?;
+    let model_dir = resolve_pattern_seg_model_dir(options.model_dir.as_deref())?;
+    let config = OnnxSegmentConfig {
+        model_dir,
+        image_size: options.image_size,
+        threshold: options.threshold,
+        fill_holes: true,
+        batch_size: options.batch_size,
+    };
+    let mut segmenter = OnnxSegmenter::open(&config)?;
+
+    let mut results = Vec::with_capacity(tasks.len());
+    for (slide_channel, mask_channel, position) in tasks {
+        results.push(run_position_segmentation_onnx(
+            workspace,
+            slide_channel,
+            mask_channel,
+            position,
+            options,
+            &mut segmenter,
+        )?);
+    }
+    summarize_results(results)
+}
+
+#[cfg(not(feature = "onnx"))]
 fn run_segment_onnx(
     _workspace: &Path,
     _mapping: &SlideMapping,
     _options: &SegmentOptions,
 ) -> Result<(), String> {
     Err(
-        "ONNX segment backend is not in this crate (Otsu is the Python-parity default). \
-         Pass --backend otsu or omit --backend."
+        "ONNX segment backend requires the `onnx` Cargo feature (ort) and \
+         keejkrej/single-cell-pattern-unet. Enable `--features onnx`, run \
+         `bash scripts/fetch-pattern-seg-model.sh`, and set LISCA_PATTERN_SEG_MODEL \
+         (see models/README.md). Otsu remains the Python-parity default (`--backend otsu`)."
             .to_string(),
     )
 }
@@ -189,11 +316,8 @@ fn run_position_segmentation_otsu(
     let mut mask_count = 0usize;
 
     for roi in &index.rois {
-        let output_path = crate::roi_stack::default_mask_path(
-            workspace,
-            index.position,
-            &roi.file_name,
-        );
+        let output_path =
+            crate::roi_stack::default_mask_path(workspace, index.position, &roi.file_name);
         if output_path.exists() && !options.force {
             mask_count += 1;
             continue;
@@ -228,6 +352,68 @@ fn run_position_segmentation_otsu(
     })
 }
 
+#[cfg(feature = "onnx")]
+fn run_position_segmentation_onnx(
+    workspace: &Path,
+    slide_channel: u32,
+    mask_channel: u32,
+    position: u32,
+    options: &SegmentOptions,
+    segmenter: &mut OnnxSegmenter,
+) -> Result<PositionSegmentResult, String> {
+    let pos_dir = match position_dir(workspace, position) {
+        Ok(path) => path,
+        Err(_) => {
+            return Ok(PositionSegmentResult {
+                slide_channel,
+                position,
+                mask_count: 0,
+                skipped: true,
+            });
+        }
+    };
+    let index = read_position_index(&pos_dir)?;
+    validate_channel_index(&index, mask_channel)?;
+    let mut mask_count = 0usize;
+
+    for roi in &index.rois {
+        let output_path =
+            crate::roi_stack::default_mask_path(workspace, index.position, &roi.file_name);
+        if output_path.exists() && !options.force {
+            mask_count += 1;
+            continue;
+        }
+        let roi_path = pos_dir.join(&roi.file_name);
+        if !roi_path.is_file() {
+            return Err(format!(
+                "Missing ROI TIFF referenced by index.json: {}",
+                roi_path.display()
+            ));
+        }
+        let stack = RoiStack::load(&roi_path, roi.shape)?;
+        let width = roi.shape[4] as usize;
+        let height = roi.shape[3] as usize;
+        let mut frames = Vec::with_capacity(index.time_count as usize);
+        for timepoint in 0..index.time_count {
+            frames.push(roi_frame_2d(
+                &stack,
+                &index.axis_order,
+                timepoint,
+                mask_channel,
+                0,
+            )?);
+        }
+        let masks = segmenter.segment_frames(&frames)?;
+        write_mask_tif(&output_path, &masks, width, height)?;
+        mask_count += 1;
+    }
+    Ok(PositionSegmentResult {
+        slide_channel,
+        position,
+        mask_count,
+        skipped: false,
+    })
+}
 
 fn format_skipped_positions(skipped_positions: &BTreeMap<u32, Vec<u32>>) -> String {
     skipped_positions
@@ -367,5 +553,54 @@ mod tests {
         assert_eq!(loaded.masks[time_count - 1], masks[time_count - 1]);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_pattern_seg_model_dir_accepts_explicit_onnx_file_and_dir() {
+        let dir = test_workspace("pattern-onnx");
+        let _ = std::fs::remove_dir_all(&dir);
+        let onnx_dir = dir.join("onnx");
+        std::fs::create_dir_all(&onnx_dir).unwrap();
+        let model = onnx_dir.join("model.onnx");
+        std::fs::write(&model, b"onnx").unwrap();
+
+        assert_eq!(
+            resolve_pattern_seg_model_dir(Some(&onnx_dir)).unwrap(),
+            onnx_dir
+        );
+        assert_eq!(
+            resolve_pattern_seg_model_dir(Some(&model)).unwrap(),
+            onnx_dir
+        );
+        assert_eq!(resolve_pattern_seg_model_dir(Some(&dir)).unwrap(), onnx_dir);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn onnx_backend_reports_feature_or_model_requirement() {
+        let workspace = test_workspace("onnx-backend");
+        let _ = std::fs::remove_dir_all(&workspace);
+        std::fs::create_dir_all(&workspace).unwrap();
+        let mapping = test_mapping(vec![1]);
+        let mut options = SegmentOptions::default();
+        options.backend = SegmentBackend::Onnx;
+        options.model_dir = Some(workspace.join("missing-model"));
+        let err = run_segment(&workspace, &mapping, &options).unwrap_err();
+        #[cfg(not(feature = "onnx"))]
+        {
+            assert!(
+                err.contains("`onnx` Cargo feature") || err.contains("LISCA_PATTERN_SEG_MODEL"),
+                "{err}"
+            );
+        }
+        #[cfg(feature = "onnx")]
+        {
+            assert!(
+                err.contains("model.onnx") || err.contains("ONNX segment model"),
+                "{err}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&workspace);
     }
 }

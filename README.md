@@ -16,7 +16,7 @@ The lisca product monorepo will depend on **this** git URL for both languages
 (it must not be the other way around — that would cycle):
 
 ```toml
-# Cargo
+# Cargo (Otsu default; add features = ["onnx"] for pattern U-Net)
 lisca-transfection = { git = "https://github.com/keejkrej/lisca-transfection-assay" }
 ```
 
@@ -62,11 +62,20 @@ The crate’s public API is the same stages, given a workspace path (and
 optional `assay.json`): `run_segment`, `run_timeseries`, `run_auc`,
 `run_fit`, `run_pipeline`, and the `run_plot_*` functions.
 
+Otsu is the Python-parity default. Optional **ONNX** fg/bg masks use the
+assay-owned [single-cell-pattern-unet](https://huggingface.co/keejkrej/single-cell-pattern-unet)
+(`SegmentBackend::Onnx`, Cargo feature `onnx`). lisca / Studio resolve it via
+`LISCA_PATTERN_SEG_MODEL` or Hugging Face — cloning lisca is not required.
+See **`models/README.md`**.
+
 ## Tests / parity
 
 ```bash
 .uv/uv run pytest
 cargo test -p lisca-transfection
+# optional ONNX backend (downloads ~7.4 MB weights, gitignored)
+bash scripts/fetch-pattern-seg-model.sh
+cargo test -p lisca-transfection --features onnx
 ```
 
 `cargo test` includes a synthetic-workspace comparison of Python vs Rust

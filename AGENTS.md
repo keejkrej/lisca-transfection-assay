@@ -14,11 +14,11 @@ owned by `~/workspace/lisca/CONTEXT.md` — do not add aliases here.
 
 | Layer | Responsibility |
 | --- | --- |
-| **This repo** | Transfection **analysis** (Python `transfection` + Rust `lisca-transfection`) once `roi/` exists. Parity tests live here. |
+| **This repo** | Transfection **analysis** (Python `transfection` + Rust `lisca-transfection`) once `roi/` exists. Parity tests live here. Owns **single-cell-pattern-unet** (HF fg/bg masks). |
 | **`../pyama-v2`** | Python **ROI crop** (+ notebook UX for nontechnical users while Studio is in dev) |
 | **`../lisca` Aligner** | Light align only → `bbox/` / `align/` (no long crop/analysis jobs) |
 | **`../lisca` `lisca-crop`** | Shared crop (ND2/CZI, bbox → `roi/`). Not transfection-specific; do not port here. |
-| **Studio / `crates/lisca`** | Product app. Will depend on **this** git URL for the Python package and the crate. Do not depend on lisca from this crate (git cycle). |
+| **Studio / `crates/lisca`** | Product app. Will depend on **this** git URL for the Python package and the crate. Do not depend on lisca from this crate (git cycle). Product models: smart-exclusion, smart-segment SlimSAM. |
 
 ### Intended usage
 
@@ -55,6 +55,12 @@ uv run transfection check-segment WORKSPACE   # manual mask QA only
 # Rust (same stages; crate lisca-transfection)
 cargo run -p lisca-transfection --bin lisca-analyze -- --help
 cargo run -p lisca-transfection --release --bin lisca-analyze -- pipeline WORKSPACE
+
+# Optional ONNX fg/bg (this repo owns the model; not SlimSAM)
+bash scripts/fetch-pattern-seg-model.sh
+export LISCA_PATTERN_SEG_MODEL=./models/single-cell-pattern-unet/onnx
+cargo run -p lisca-transfection --features onnx --release --bin lisca-analyze -- \
+  segment WORKSPACE --backend onnx --force
 ```
 
 Defaults:
@@ -186,6 +192,15 @@ transfection = { git = "https://github.com/keejkrej/lisca-transfection-assay" }
 This crate must **not** depend on `github.com/keejkrej/lisca`. Crop/ND2/CZI stay in
 lisca. How to run comparisons: **`docs/parity.md`**.
 
+### Assay model vs product models
+
+**`single-cell-pattern-unet`** (HF `keejkrej/single-cell-pattern-unet`, gene-expression /
+micropattern fg-bg masks) lives in **`models/single-cell-pattern-unet/`**. Weights are
+gitignored; fetch with `bash scripts/fetch-pattern-seg-model.sh`. lisca / Studio
+resolve via `LISCA_PATTERN_SEG_MODEL` (legacy `LISCA_GE_SEG_MODEL`) or Hugging Face —
+do not require cloning lisca. Rust `SegmentBackend::Onnx` is behind Cargo feature
+`onnx` (ort). Smart-exclusion and SlimSAM stay in lisca. Do not add crop here.
+
 Stage names, CSV columns, and result PNG basenames should stay aligned between
 Python and Rust in this repo.
 
@@ -196,4 +211,6 @@ bash install.sh          # or install.ps1 on Windows — uv + sync only
 uv run transfection --help
 uv run pytest
 cargo test -p lisca-transfection
+# optional: curl ONNX from HF, then
+cargo test -p lisca-transfection --features onnx
 ```

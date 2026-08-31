@@ -11,6 +11,11 @@
 //! cycle). The on-disk workspace is the API. Crop / ND2 / CZI stay in lisca
 //! (`lisca-crop`); this crate assumes `roi/` already exists.
 //!
+//! Assay-specific ONNX: `keejkrej/single-cell-pattern-unet` lives in
+//! `models/single-cell-pattern-unet/` (weights curl-from-HF, gitignored). Enable
+//! Cargo feature `onnx` for `SegmentBackend::Onnx`. Product models
+//! (smart-exclusion, SlimSAM) stay in lisca.
+//!
 //! Studio wire id: `transfection` (`assay.json` root `type`).
 
 pub mod array;
@@ -28,6 +33,8 @@ mod plot;
 mod plot_stages;
 mod roi_stack;
 mod segment;
+#[cfg(feature = "onnx")]
+mod segment_onnx;
 mod timeseries;
 mod timeseries_stage;
 mod traces;
@@ -38,14 +45,18 @@ pub use array::{
 };
 pub use assay::{
     interval_minutes, load_assay, load_assay_for_workspace, max_onset_minutes, resolve_assay_path,
-    skip_segment, AssayJsonFile, DEFAULT_INTERVAL_MINUTES, DEFAULT_MAX_ONSET_MINUTES,
-    ASSAY_TYPE_TRANSFECTION,
+    skip_segment, AssayJsonFile, ASSAY_TYPE_TRANSFECTION, DEFAULT_INTERVAL_MINUTES,
+    DEFAULT_MAX_ONSET_MINUTES,
 };
 pub use auc::run_auc;
 pub use fit::{default_fit_jobs, run_fit};
 pub use pipeline::{run_pipeline, run_pipeline_with_mode, run_sync, run_sync_with_mode};
 pub use plot_stages::{run_plot_auc, run_plot_fit, run_plot_timeseries, DEFAULT_PLOT_COLUMNS};
-pub use segment::{default_jobs, run_segment, SegmentBackend, SegmentOptions};
+pub use segment::{
+    default_jobs, resolve_pattern_seg_model_dir, run_segment, SegmentBackend, SegmentOptions,
+};
+#[cfg(feature = "onnx")]
+pub use segment_onnx::{OnnxSegmentConfig, OnnxSegmenter};
 pub use slide::{
     build_slide_mapping, load_mapping_for_workspace, SlideChannelMapping, SlideMapping,
 };
