@@ -613,6 +613,10 @@ fn fit_scatter_png(workspace: &Path) -> PathBuf {
     sample_results_dir(workspace).join(FIT_SCATTER_PNG)
 }
 
+fn fit_lifetime_scatter_png(workspace: &Path) -> PathBuf {
+    sample_results_dir(workspace).join(FIT_LIFETIME_SCATTER_PNG)
+}
+
 /// The synthetic kinetic has onset fixed at 0 (`max_onset_minutes = 0`). Log-log
 /// joint plots drop non-positive points, so rewrite onset to a positive value
 /// after the analysis CSV comparison so plot-fit can write the onset scatter.
