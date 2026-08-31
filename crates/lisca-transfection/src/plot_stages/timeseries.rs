@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::csv_io::{column_index, read_csv};
-use crate::plot::write_metric_plots;
+use crate::plot::{percentile_ylim, shared_summary_ylim, write_metric_plots};
 use crate::sample_pack::{
     publish_sample_traces_xlsx, sample_pack_dir, sample_pack_dirnames,
 };
@@ -28,6 +28,12 @@ pub fn run_plot_timeseries(
     if corrected_panels.is_empty() {
         return Err("no timeseries panels to plot".to_string());
     }
+    let mut all_corrected = Vec::new();
+    for panel in &corrected_panels {
+        all_corrected.extend_from_slice(&panel.y_values);
+    }
+    let shared_ylim = percentile_ylim(&all_corrected);
+    let shared_summary = shared_summary_ylim(&corrected_panels, interval);
     for panel in &corrected_panels {
         let Some(dirname) = dirnames.get(&panel.slide_channel) else {
             continue;
@@ -38,14 +44,20 @@ pub fn run_plot_timeseries(
             &dest,
             "intensity",
             interval,
-            Some(1),
             &named,
             true,
+            Some(shared_ylim),
+            Some(shared_summary),
         )?;
     }
 
     if csvs.iter().all(|path| panel_has_column(path, "area")) {
         let area_panels = load_trace_panels_by_sample(&csvs, "area", &named)?;
+        let mut all_area = Vec::new();
+        for panel in &area_panels {
+            all_area.extend_from_slice(&panel.y_values);
+        }
+        let shared_area = percentile_ylim(&all_area);
         for panel in &area_panels {
             let Some(dirname) = dirnames.get(&panel.slide_channel) else {
                 continue;
@@ -56,9 +68,10 @@ pub fn run_plot_timeseries(
                 &dest,
                 "mask area",
                 interval,
-                Some(1),
                 &named,
                 false,
+                Some(shared_area),
+                None,
             )?;
         }
     }

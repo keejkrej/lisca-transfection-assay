@@ -15,8 +15,9 @@ from transfection.services.plot_timeseries import (
 NAME = "plot-timeseries"
 HELP = (
     "Read analysis/PosN/chC.csv (never recomputes traces) and write "
-    "results/<sample>/traces.xlsx plus single-panel traces.png, "
-    "traces_summary.png, and area.png. Requires samples[].name."
+    "results/<sample>/traces.xlsx plus traces.png, traces_shared_y.png, "
+    "traces_summary.png, traces_summary_shared_y.png, and area.png / area_shared_y.png. "
+    "Requires samples[].name."
 )
 
 

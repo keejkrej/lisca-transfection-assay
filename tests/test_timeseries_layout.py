@@ -101,7 +101,7 @@ def test_discovers_position_channel_tables(tmp_path: Path) -> None:
 
 
 def test_parse_timeseries_csv_path() -> None:
-    assert parse_timeseries_csv_path(Path("/ws/timeseries/Pos3/ch1.csv")) == (3, 1)
+    assert parse_timeseries_csv_path(Path("/ws/analysis/Pos3/ch1.csv")) == (3, 1)
 
 
 def test_resolve_slide_channel_from_assay_mapping() -> None:
@@ -121,8 +121,8 @@ def test_resolve_slide_channel_from_assay_mapping() -> None:
             ),
         }
     )
-    assert resolve_slide_channel(Path("/ws/timeseries/Pos1/ch1.csv"), mapping) == 0
-    assert resolve_slide_channel(Path("/ws/timeseries/Pos3/ch2.csv"), mapping) == 1
+    assert resolve_slide_channel(Path("/ws/analysis/Pos1/ch1.csv"), mapping) == 0
+    assert resolve_slide_channel(Path("/ws/analysis/Pos3/ch2.csv"), mapping) == 1
 
 
 def test_resolve_slide_channel_missing_mapping_raises() -> None:
@@ -137,7 +137,7 @@ def test_resolve_slide_channel_missing_mapping_raises() -> None:
         }
     )
     with pytest.raises(ValueError, match="No assay mapping entry"):
-        resolve_slide_channel(Path("/ws/timeseries/Pos9/ch1.csv"), mapping)
+        resolve_slide_channel(Path("/ws/analysis/Pos9/ch1.csv"), mapping)
 
 
 def test_build_lookup_rejects_ambiguous_position_signal() -> None:

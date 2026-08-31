@@ -11,9 +11,9 @@ from transfection.services.plot_fit import format_written_fit_plot_messages, run
 
 NAME = "plot-fit"
 HELP = (
-    "Read analysis/PosN/fit.csv (never refits) and write results/<sample>/fit.xlsx "
-    "plus single-panel kinetic PNGs and results/expression_rate_vs_onset_time.png "
-    "(one subplot per sample). Requires samples[].name."
+    "Read analysis/PosN/fit.csv (never refits) and write results/<sample>/fit.xlsx, "
+    "traces_fit.png, traces_fit_shared_y.png, and expression_rate_vs_onset_time.png, "
+    "plus cross-sample parameter boxplots at results/. Requires samples[].name."
 )
 
 
@@ -50,8 +50,7 @@ def plot_fit(
         typer.Option(
             "--columns",
             min=1,
-            help="Subplot columns for results/expression_rate_vs_onset_time.png. "
-            "Default: auto layout (same as traces).",
+            help="Unused for per-sample single-panel plots (kept for CLI compatibility).",
         ),
     ] = None,
     assay: Annotated[

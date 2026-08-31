@@ -89,3 +89,23 @@ cargo test -p lisca-transfection --features onnx
 runs the same commands on PRs and `main`. Details: **`docs/parity.md`**.
 
 Full stage list and `assay.json` schema: `AGENTS.md`.
+
+## Workspace layout
+
+```
+analysis/PosN/{chC.csv,auc.csv,fit.csv}     # csv only; CLI verb still timeseries
+results/
+  auc.png expression_rate.png onset_time.png
+  baseline_intensity.png protein_lifetime.png mrna_lifetime.png
+  <sample>/
+    traces.xlsx auc.xlsx fit.xlsx
+    traces.png traces_shared_y.png
+    traces_summary.png traces_summary_shared_y.png
+    area.png area_shared_y.png
+    traces_fit.png traces_fit_shared_y.png
+    expression_rate_vs_onset_time.png
+```
+
+There is no `timeseries/` folder, no combined results tables, and no csv under
+`results/`. Plot stages never recompute analysis. Shared-y ylim is pooled
+across samples. Scatter uses `onset_time` + `expression_rate`.

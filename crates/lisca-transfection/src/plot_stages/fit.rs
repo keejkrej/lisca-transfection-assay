@@ -9,10 +9,9 @@ use mplot::prelude::{
 use crate::array::{fitted_trace_value, KineticFitCoeffs};
 use crate::csv_io::{column_index, parse_f64, read_csv, slide_channel_column_index};
 use crate::plot::{
-    boxplot_tick_label, boxplot_x_axis_label, figure_builder_for_grid, figure_builder_single,
-    percentile_ylim, quartile_axis_upper, resolve_subplot_grid, sample_subplot_title,
-    sample_trace_naming_haystack, save_figure, slide_channel_labels, trace_color_alpha,
-    trace_line_style, SAVE_PAD_GRID_INCHES, SAVE_PAD_SINGLE_INCHES,
+    boxplot_tick_label, boxplot_x_axis_label, companion_plot_path, figure_builder_single,
+    percentile_ylim, quartile_axis_upper, sample_subplot_title, sample_trace_naming_haystack,
+    save_figure, slide_channel_labels, trace_color_alpha, trace_line_style, SAVE_PAD_SINGLE_INCHES,
 };
 use crate::sample_pack::{
     concat_kind_rows, publish_sample_tables_xlsx, sample_pack_dir, sample_pack_dirnames,
@@ -54,12 +53,22 @@ pub fn run_plot_fit(
     interval: f64,
     columns: Option<usize>,
 ) -> Result<(), String> {
+    let _ = columns;
     let named = require_named_samples(mapping)?;
     publish_sample_tables_xlsx(workspace, &named, "fit")?;
     let dirnames = sample_pack_dirnames(&named)?;
     let labels = slide_channel_labels(&named);
     let (headers, grouped) = concat_kind_rows(workspace, &named, "fit")?;
     let timeseries_csvs = discover_timeseries_csvs(&workspace.join("analysis"))?;
+    let mut all_corrected = Vec::new();
+    for csv_path in &timeseries_csvs {
+        let (headers, data_rows) = read_csv(csv_path)?;
+        let groups = group_timeseries_rows(&headers, &data_rows, "corrected")?;
+        for (_roi, trace) in groups {
+            all_corrected.extend(trace.iter().map(|(_, value)| *value));
+        }
+    }
+    let shared_fit_ylim = (!all_corrected.is_empty()).then(|| percentile_ylim(&all_corrected));
     let mut all_parsed: Vec<FitPlotRow> = Vec::new();
 
     for (channel, rows) in grouped {
@@ -69,22 +78,6 @@ pub fn run_plot_fit(
         let dest_dir = sample_pack_dir(workspace, dirname);
         let parsed = parse_fit_rows(&headers, &rows)?;
         all_parsed.extend(parsed.iter().cloned());
-        for (parameter, label) in PLOTTED_PARAMETERS {
-            let output_plot = dest_dir.join(format!("{parameter}.png"));
-            if parameter == "expression_rate" {
-                write_fit_boxplot(&parsed, parameter, label, &output_plot, &labels, false)?;
-                write_fit_boxplot(
-                    &parsed,
-                    parameter,
-                    label,
-                    &dest_dir.join("expression_rate_log.png"),
-                    &labels,
-                    true,
-                )?;
-                continue;
-            }
-            write_fit_boxplot(&parsed, parameter, label, &output_plot, &labels, false)?;
-        }
         let sample_csvs: Vec<PathBuf> = timeseries_csvs
             .iter()
             .filter(|path| resolve_slide_channel(path, &named).ok() == Some(channel))
@@ -96,17 +89,26 @@ pub fn run_plot_fit(
             &dest_dir.join("traces_fit.png"),
             interval,
             &named,
+            shared_fit_ylim,
+        )?;
+        write_expression_rate_vs_onset_scatter(
+            &parsed,
+            &dest_dir.join("expression_rate_vs_onset_time.png"),
+            &labels,
         )?;
     }
     if !all_parsed.is_empty() {
-        write_expression_rate_vs_onset_scatter(
-            &all_parsed,
-            &workspace
-                .join("results")
-                .join("expression_rate_vs_onset_time.png"),
-            &labels,
-            columns,
-        )?;
+        let results_dir = workspace.join("results");
+        for (parameter, label) in PLOTTED_PARAMETERS {
+            write_fit_boxplot(
+                &all_parsed,
+                parameter,
+                label,
+                &results_dir.join(format!("{parameter}.png")),
+                &labels,
+                false,
+            )?;
+        }
     }
     Ok(())
 }
@@ -292,54 +294,39 @@ fn write_expression_rate_vs_onset_scatter(
     rows: &[FitPlotRow],
     output_plot: &Path,
     labels: &BTreeMap<u32, String>,
-    columns: Option<usize>,
 ) -> Result<(), String> {
-    let mut grouped: BTreeMap<u32, (Vec<f64>, Vec<f64>)> = BTreeMap::new();
+    let mut xs = Vec::new();
+    let mut ys = Vec::new();
+    let mut slide_channel = rows.first().map(|row| row.slide_channel).unwrap_or(0);
     for row in rows {
-        grouped
-            .entry(row.slide_channel)
-            .or_insert_with(|| (Vec::new(), Vec::new()));
         let Some((onset, rate)) = successful_finite_xy(row) else {
             continue;
         };
-        let entry = grouped.get_mut(&row.slide_channel).expect("just inserted");
-        entry.0.push(onset);
-        entry.1.push(rate);
+        slide_channel = row.slide_channel;
+        xs.push(onset);
+        ys.push(rate);
     }
-    if grouped.values().all(|(xs, _)| xs.is_empty()) {
+    if xs.is_empty() {
         return Err(
             "No successful finite fits available to plot expression rate vs onset time".to_string(),
         );
     }
 
-    let channels: Vec<u32> = grouped.keys().copied().collect();
-    let (grid_rows, grid_cols) = resolve_subplot_grid(channels.len(), columns);
-    let mut builder = figure_builder_for_grid(grid_rows, grid_cols);
+    let name = labels
+        .get(&slide_channel)
+        .cloned()
+        .unwrap_or_else(|| format!("slide channel {slide_channel}"));
+    let (x_low, x_high) = percentile_ylim(&xs);
+    let (y_low, y_high) = percentile_ylim(&ys);
+    let annotation = pearson_annotation(pearson_r(&xs, &ys), xs.len());
+    let text_x = x_low + 0.05 * (x_high - x_low);
+    let text_y = y_high - 0.08 * (y_high - y_low);
+    let (color_name, _alpha) = trace_color_alpha(&name);
+    let color = Color::hex(color_name);
+    let title = name;
 
-    for (index, channel) in channels.iter().enumerate() {
-        let (xs, ys) = grouped.get(channel).cloned().unwrap_or_default();
-        let name = labels
-            .get(channel)
-            .cloned()
-            .unwrap_or_else(|| format!("slide channel {channel}"));
-        let title = name.clone();
-        let annotation = pearson_annotation(pearson_r(&xs, &ys), xs.len());
-        let (color_name, _alpha) = trace_color_alpha(&name);
-        let color = Color::hex(color_name);
-        let (x_low, x_high) = if xs.is_empty() {
-            (0.0, 1.0)
-        } else {
-            percentile_ylim(&xs)
-        };
-        let (y_low, y_high) = if ys.is_empty() {
-            (0.0, 1.0)
-        } else {
-            percentile_ylim(&ys)
-        };
-        let text_x = x_low + 0.05 * (x_high - x_low);
-        let text_y = y_high - 0.08 * (y_high - y_low);
-
-        builder = builder.panel(GridPos::new(grid_rows, grid_cols, index + 1), move |p| {
+    let figure = figure_builder_single()
+        .panel(GridPos::new(1, 1, 1), move |p| {
             for (x, y) in xs.iter().zip(ys.iter()) {
                 // mplot has no scatter primitive; one-point marked lines skip the stroke.
                 p.line(&[*x], &[*y], scatter_marker_style(color));
@@ -353,22 +340,10 @@ fn write_expression_rate_vs_onset_scatter(
                     .x_range(x_low, x_high)
                     .y_range(y_low, y_high),
             );
-        });
-    }
-
-    for index in channels.len()..(grid_rows * grid_cols) {
-        builder = builder.panel(GridPos::new(grid_rows, grid_cols, index + 1), |panel| {
-            panel.axes(AxesStyle::new().hide(true));
-        });
-    }
-
-    let figure = builder.build().map_err(|error| error.to_string())?;
-    let pad = if channels.len() <= 1 {
-        SAVE_PAD_SINGLE_INCHES
-    } else {
-        SAVE_PAD_GRID_INCHES
-    };
-    save_figure(&figure, output_plot, pad)
+        })
+        .build()
+        .map_err(|error| error.to_string())?;
+    save_figure(&figure, output_plot, SAVE_PAD_SINGLE_INCHES)
 }
 
 fn write_fitted_trace_plots(
@@ -377,6 +352,7 @@ fn write_fitted_trace_plots(
     output_plot: &Path,
     interval: f64,
     mapping: &SlideMapping,
+    shared_ylim: Option<(f64, f64)>,
 ) -> Result<(), String> {
     let fit_lookup: BTreeMap<(i64, i64), &FitPlotRow> = fit_rows
         .iter()
@@ -425,14 +401,47 @@ fn write_fitted_trace_plots(
         return Err("No successful fit rows matched the inferred timeseries CSVs".to_string());
     }
 
-    let (y_low, y_high) = percentile_ylim(&corrected_values);
+    let local_ylim = percentile_ylim(&corrected_values);
     let (color, alpha) = trace_color_alpha(&sample_trace_naming_haystack(
         slide_channel,
         &paths,
         mapping,
     ));
     let title = sample_subplot_title(slide_channel, matched_traces, mapping);
+    save_fitted_trace_figure(
+        &series,
+        output_plot,
+        title.clone(),
+        color,
+        alpha,
+        local_ylim,
+        max_t,
+    )?;
+    if let Some(shared) = shared_ylim {
+        save_fitted_trace_figure(
+            &series,
+            &companion_plot_path(output_plot, "shared_y"),
+            title,
+            color,
+            alpha,
+            shared,
+            max_t,
+        )?;
+    }
+    Ok(())
+}
 
+fn save_fitted_trace_figure(
+    series: &[(Vec<f64>, Vec<f64>)],
+    output_plot: &Path,
+    title: String,
+    color: &str,
+    alpha: f64,
+    ylim: (f64, f64),
+    max_t: f64,
+) -> Result<(), String> {
+    let (y_low, y_high) = ylim;
+    let series = series.to_vec();
     let figure = figure_builder_single()
         .panel(GridPos::new(1, 1, 1), move |p| {
             for (x, y) in &series {

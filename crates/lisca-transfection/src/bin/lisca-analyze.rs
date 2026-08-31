@@ -69,10 +69,13 @@ Commands (same stage names as `transfection`):
   timeseries        Intensity metrics → analysis/Pos{{n}}/ch{{n}}.csv (CSV only; sample names not required)
   auc               Trapezoidal AUC → analysis/PosN/auc.csv (CSV only; sample names not required)
   fit               Two-exponential kinetic fit → analysis/PosN/fit.csv (CSV only; sample names not required)
-  plot-timeseries   Read analysis/ traces; write results/<sample>/traces.xlsx + traces.png / traces_summary.png / area.png
-  plot-auc          Read analysis/ auc.csv; write results/<sample>/auc.xlsx + auc.png / auc_log.png
-  plot-fit          Read analysis/ fit.csv; write results/<sample>/fit.xlsx + kinetic PNGs
-                    and results/expression_rate_vs_onset_time.png (one subplot per sample)
+  plot-timeseries   Read analysis/ traces; write results/<sample>/traces.xlsx + traces.png /
+                    traces_shared_y.png / traces_summary.png / traces_summary_shared_y.png /
+                    area.png / area_shared_y.png
+  plot-auc          Read analysis/ auc.csv; write results/<sample>/auc.xlsx + results/auc.png
+  plot-fit          Read analysis/ fit.csv; write results/<sample>/fit.xlsx, traces_fit.png,
+                    traces_fit_shared_y.png, expression_rate_vs_onset_time.png, and
+                    cross-sample boxplots at results/
   pipeline          Analysis stages then plot stages (plot requires samples[].name)
                     (aliases: analyze, all)
 
@@ -92,7 +95,7 @@ Common options:
   --threshold F           ONNX sigmoid threshold (default: 0.5)
   --batch-size N          ONNX frame batch size (default: 32)
   --force, -f             segment: overwrite existing masks
-  --columns N             plot grid columns (default: 3)
+  --columns N             unused (per-sample plots are one axes; kept for CLI compatibility)
 
 Parallel stages always use available CPU cores (no --jobs).
 

@@ -26,6 +26,7 @@ from transfection.core import (
 )
 from transfection.core.sample_pack import (
     concat_sample_traces,
+    labels_from_sample_column,
     publish_sample_traces_xlsx,
     sample_pack_dir,
     sample_pack_dirnames,
@@ -44,6 +45,9 @@ def write_sample_timeseries_plots(
     interval: float,
     columns: int | None,
     slide_channel_names: dict[int, str],
+    shared_ylim: tuple[float, float] | None = None,
+    shared_summary_ylim: tuple[float, float] | None = None,
+    shared_area_ylim: tuple[float, float] | None = None,
 ) -> list[Path]:
     written = list(
         write_metric_plots(
@@ -55,6 +59,8 @@ def write_sample_timeseries_plots(
             columns=columns,
             slide_channel_names=slide_channel_names,
             include_summary=True,
+            shared_ylim=shared_ylim,
+            shared_summary_ylim=shared_summary_ylim,
         )
     )
     if all("area" in df.columns for _, frames in sample_panels for _, df in frames):
@@ -68,6 +74,7 @@ def write_sample_timeseries_plots(
                 columns=columns,
                 slide_channel_names=slide_channel_names,
                 include_summary=False,
+                shared_ylim=shared_area_ylim,
             )
         )
     return written
@@ -108,27 +115,41 @@ def write_metric_plots(
     columns: int | None,
     slide_channel_names: dict[int, str],
     include_summary: bool = True,
+    shared_ylim: tuple[float, float] | None = None,
+    shared_summary_ylim: tuple[float, float] | None = None,
 ) -> tuple[Path, ...]:
-    """Write one-panel traces (or area). Optional mean/median/IQR summary. No shared-y."""
-    panel_columns = 1 if len(sample_panels) <= 1 else columns
+    """Write one-panel traces (or area), optional summary, and shared-y companions."""
+    _ = columns
     panel_ylims = [
         percentile_ylim(
             np.concatenate([panel_values(df, y_column) for _, df in frames]) if frames else np.array([])
         )
         for _, frames in sample_panels
     ]
-    write_subplot_grid(
+    write_sample_panel(
         sample_panels,
         output_plot,
         y_column=y_column,
         y_label=y_label,
         interval=interval,
         ylim_fn=lambda i: panel_ylims[i],
-        columns=panel_columns,
         slide_channel_names=slide_channel_names,
     )
+    written: list[Path] = [output_plot]
+    if shared_ylim is not None:
+        shared_plot = metric_shared_y_output_path(output_plot)
+        write_sample_panel(
+            sample_panels,
+            shared_plot,
+            y_column=y_column,
+            y_label=y_label,
+            interval=interval,
+            ylim_fn=lambda _i: shared_ylim,
+            slide_channel_names=slide_channel_names,
+        )
+        written.append(shared_plot)
     if not include_summary:
-        return (output_plot,)
+        return tuple(written)
     summary_plot = summary_output_path(output_plot)
     write_summary_metric_plots(
         sample_panels,
@@ -136,10 +157,22 @@ def write_metric_plots(
         y_column=y_column,
         y_label=y_label,
         interval=interval,
-        columns=panel_columns,
         slide_channel_names=slide_channel_names,
     )
-    return (output_plot, summary_plot)
+    written.append(summary_plot)
+    if shared_summary_ylim is not None:
+        summary_shared = metric_shared_y_output_path(summary_plot)
+        write_summary_metric_plots(
+            sample_panels,
+            summary_shared,
+            y_column=y_column,
+            y_label=y_label,
+            interval=interval,
+            slide_channel_names=slide_channel_names,
+            shared_ylim=shared_summary_ylim,
+        )
+        written.append(summary_shared)
+    return tuple(written)
 
 
 def write_summary_metric_plots(
@@ -149,22 +182,30 @@ def write_summary_metric_plots(
     y_column: str,
     y_label: str,
     interval: float,
-    columns: int | None,
     slide_channel_names: dict[int, str],
+    shared_ylim: tuple[float, float] | None = None,
 ) -> Path:
     """Write a mean / median / IQR summary panel."""
     summaries = [
         sample_summary_curves(frames, y_column=y_column, interval=interval)
         for _, frames in sample_panels
     ]
-    panel_ylims = [summary_ylim(summary) for summary in summaries]
-    write_summary_subplot_grid(
+    if shared_ylim is None:
+        panel_ylims = [summary_ylim(summary) for summary in summaries]
+
+        def ylim_fn(index: int) -> tuple[float, float]:
+            return panel_ylims[index]
+
+    else:
+
+        def ylim_fn(index: int) -> tuple[float, float]:
+            return shared_ylim
+    write_summary_panel(
         sample_panels,
         summaries,
         output_plot,
         y_label=y_label,
-        ylim_fn=lambda i: panel_ylims[i],
-        columns=columns,
+        ylim_fn=ylim_fn,
         slide_channel_names=slide_channel_names,
     )
     return output_plot
@@ -317,32 +358,25 @@ def trace_naming_haystack(
     return " ".join(parts)
 
 
-def open_sample_subplot_grid(
-    sample_count: int,
-    columns: int | None,
-) -> tuple[plt.Figure, np.ndarray, int, int]:
-    """Shared figure/axes for traces and summary grids (same figsize and layout)."""
-    rows, cols = plot_layout.resolve_subplot_grid(sample_count, columns)
-    fig, axes = plt.subplots(
-        rows,
-        cols,
-        squeeze=False,
-        figsize=plot_layout.figure_size_for_grid(rows, cols),
+def open_sample_figure() -> tuple[plt.Figure, plt.Axes]:
+    """One axes at the shared single-panel size (traces, summary, area)."""
+    fig, ax = plt.subplots(
+        figsize=plot_layout.FIGURE_SIZE_SINGLE_IN,
         layout="constrained",
     )
-    return fig, axes, rows, cols
+    return fig, ax
 
 
-def save_sample_subplot_grid(fig: plt.Figure, output_plot: Path) -> None:
+def save_sample_figure(fig: plt.Figure, output_plot: Path) -> None:
     """Save at a fixed canvas size so traces/summary PNGs match pixel-for-pixel."""
     output_plot.parent.mkdir(parents=True, exist_ok=True)
     # No bbox_inches="tight": that crops to artists and makes summary (legend)
-    # differ in size from the individual-trace grid.
+    # differ in size from the individual-trace figure.
     fig.savefig(output_plot, dpi=plot_layout.FIGURE_DPI)
     plt.close(fig)
 
 
-def write_subplot_grid(
+def write_sample_panel(
     sample_panels: list[SamplePanel],
     output_plot: Path,
     *,
@@ -350,108 +384,99 @@ def write_subplot_grid(
     y_label: str,
     interval: float,
     ylim_fn: Callable[[int], tuple[float, float]],
-    columns: int | None,
     slide_channel_names: dict[int, str],
 ) -> None:
-    fig, axes, _rows, _cols = open_sample_subplot_grid(len(sample_panels), columns)
-    axes_flat = axes.flatten()
-
-    for index, (ax, (slide_channel, frames)) in enumerate(zip(axes_flat, sample_panels)):
-        trace_color, trace_alpha = trace_color_alpha_from_fluor_name(
-            trace_naming_haystack(slide_channel, frames, slide_channel_names)
+    if len(sample_panels) != 1:
+        raise ValueError(
+            f"per-sample plots must be one axes, got {len(sample_panels)} panels"
         )
-        trace_count = 0
-        for _csv_path, df in frames:
-            trace_groups = df.groupby(trace_group_columns(df), sort=True, dropna=False)
-            for _, roi_df in trace_groups:
-                t_minutes = roi_df["t"].astype(float).to_numpy(dtype=float) * interval
-                ax.plot(t_minutes, roi_df[y_column], color=trace_color, alpha=trace_alpha)
-            trace_count += int(trace_groups.ngroups)
-        ax.set_title(
-            subplot_title(slide_channel, trace_count, slide_channel_names=slide_channel_names)
-        )
-        ax.set_xlabel("time (min)")
-        ax.set_ylabel(y_label)
-        y_low, y_high = ylim_fn(index)
-        ax.set_ylim(y_low, y_high)
+    fig, ax = open_sample_figure()
+    slide_channel, frames = sample_panels[0]
+    trace_color, trace_alpha = trace_color_alpha_from_fluor_name(
+        trace_naming_haystack(slide_channel, frames, slide_channel_names)
+    )
+    trace_count = 0
+    for _csv_path, df in frames:
+        trace_groups = df.groupby(trace_group_columns(df), sort=True, dropna=False)
+        for _, roi_df in trace_groups:
+            t_minutes = roi_df["t"].astype(float).to_numpy(dtype=float) * interval
+            ax.plot(t_minutes, roi_df[y_column], color=trace_color, alpha=trace_alpha)
+        trace_count += int(trace_groups.ngroups)
+    ax.set_title(
+        subplot_title(slide_channel, trace_count, slide_channel_names=slide_channel_names)
+    )
+    ax.set_xlabel("time (min)")
+    ax.set_ylabel(y_label)
+    y_low, y_high = ylim_fn(0)
+    ax.set_ylim(y_low, y_high)
+    save_sample_figure(fig, output_plot)
 
-    for ax in axes_flat[len(sample_panels) :]:
-        ax.axis("off")
 
-    save_sample_subplot_grid(fig, output_plot)
-
-
-def write_summary_subplot_grid(
+def write_summary_panel(
     sample_panels: list[SamplePanel],
     summaries: list[SampleSummary | None],
     output_plot: Path,
     *,
     y_label: str,
     ylim_fn: Callable[[int], tuple[float, float]],
-    columns: int | None,
     slide_channel_names: dict[int, str],
 ) -> None:
-    fig, axes, _rows, _cols = open_sample_subplot_grid(len(sample_panels), columns)
-    axes_flat = axes.flatten()
-
-    for index, ((slide_channel, frames), summary) in enumerate(
-        zip(sample_panels, summaries, strict=True)
-    ):
-        ax = axes_flat[index]
-        trace_color, _trace_alpha = trace_color_alpha_from_fluor_name(
-            trace_naming_haystack(slide_channel, frames, slide_channel_names)
+    if len(sample_panels) != 1:
+        raise ValueError(
+            f"per-sample plots must be one axes, got {len(sample_panels)} panels"
         )
-        if summary is None:
-            ax.set_title(subplot_title(slide_channel, 0, slide_channel_names=slide_channel_names))
-            ax.set_xlabel("time (min)")
-            ax.set_ylabel(y_label)
-            y_low, y_high = ylim_fn(index)
-            ax.set_ylim(y_low, y_high)
-            continue
-
-        t_minutes, mean, median, q25, q75, trace_count = summary
-        ax.fill_between(
-            t_minutes,
-            q25,
-            q75,
-            color=trace_color,
-            alpha=0.25,
-            linewidth=0,
-            label="IQR",
-            zorder=1,
-        )
-        ax.plot(
-            t_minutes,
-            median,
-            color=trace_color,
-            linestyle="-",
-            linewidth=1.8,
-            label="median",
-            zorder=3,
-        )
-        ax.plot(
-            t_minutes,
-            mean,
-            color=trace_color,
-            linestyle="--",
-            linewidth=1.5,
-            label="mean",
-            zorder=2,
-        )
-        ax.set_title(
-            subplot_title(slide_channel, trace_count, slide_channel_names=slide_channel_names)
-        )
+    fig, ax = open_sample_figure()
+    (slide_channel, frames), summary = sample_panels[0], summaries[0]
+    trace_color, _trace_alpha = trace_color_alpha_from_fluor_name(
+        trace_naming_haystack(slide_channel, frames, slide_channel_names)
+    )
+    if summary is None:
+        ax.set_title(subplot_title(slide_channel, 0, slide_channel_names=slide_channel_names))
         ax.set_xlabel("time (min)")
         ax.set_ylabel(y_label)
-        y_low, y_high = ylim_fn(index)
+        y_low, y_high = ylim_fn(0)
         ax.set_ylim(y_low, y_high)
-        if index == 0:
-            ax.legend(loc="best", frameon=False)
+        save_sample_figure(fig, output_plot)
+        return
 
-    for ax in axes_flat[len(sample_panels) :]:
-        ax.axis("off")
-
-    save_sample_subplot_grid(fig, output_plot)
+    t_minutes, mean, median, q25, q75, trace_count = summary
+    ax.fill_between(
+        t_minutes,
+        q25,
+        q75,
+        color=trace_color,
+        alpha=0.25,
+        linewidth=0,
+        label="IQR",
+        zorder=1,
+    )
+    ax.plot(
+        t_minutes,
+        median,
+        color=trace_color,
+        linestyle="-",
+        linewidth=1.8,
+        label="median",
+        zorder=3,
+    )
+    ax.plot(
+        t_minutes,
+        mean,
+        color=trace_color,
+        linestyle="--",
+        linewidth=1.5,
+        label="mean",
+        zorder=2,
+    )
+    ax.set_title(
+        subplot_title(slide_channel, trace_count, slide_channel_names=slide_channel_names)
+    )
+    ax.set_xlabel("time (min)")
+    ax.set_ylabel(y_label)
+    y_low, y_high = ylim_fn(0)
+    ax.set_ylim(y_low, y_high)
+    ax.legend(loc="best", frameon=False)
+    save_sample_figure(fig, output_plot)
 
 
 def format_written_timeseries_plot_message(output_plot: Path) -> str:
@@ -470,11 +495,13 @@ def run_plot_timeseries(
     workspace = infer_workspace_root(metrics_dir)
     config = load_assay_for_workspace(workspace)
     mapping = require_named_samples(config)
+    _ = columns
     tables = concat_sample_traces(workspace, mapping)
     dirnames = sample_pack_dirnames(mapping)
     names = {sc: entry.sample_name for sc, entry in mapping.items()}
     xlsx_paths = publish_sample_traces_xlsx(workspace, mapping)
     written: list[Path] = list(xlsx_paths)
+    jobs: list[tuple[int, pd.DataFrame, Path]] = []
     for slide_channel, table in tables.items():
         dirname = dirnames.get(slide_channel)
         if dirname is None:
@@ -482,6 +509,30 @@ def run_plot_timeseries(
         dest = sample_pack_dir(workspace, dirname) / "traces.png"
         if output is not None and len(tables) == 1:
             dest = output.resolve()
+        jobs.append((slide_channel, table, dest))
+    shared_ylim = percentile_ylim(
+        np.concatenate([panel_values(table, "corrected") for _, table, _ in jobs])
+        if jobs
+        else np.array([])
+    )
+    summary_values: list[np.ndarray] = []
+    for _, table, dest in jobs:
+        summary = sample_summary_curves(
+            [(dest, table)], y_column="corrected", interval=interval
+        )
+        if summary is not None:
+            _t, mean, median, q25, q75, _n = summary
+            summary_values.extend([mean, median, q25, q75])
+    shared_summary_ylim = percentile_ylim(
+        np.concatenate(summary_values) if summary_values else np.array([])
+    )
+    area_arrays = [
+        panel_values(table, "area") for _, table, _ in jobs if "area" in table.columns
+    ]
+    shared_area_ylim = (
+        percentile_ylim(np.concatenate(area_arrays)) if area_arrays else None
+    )
+    for slide_channel, table, dest in jobs:
         written.extend(
             write_sample_timeseries_plots(
                 [(slide_channel, [(dest, table)])],
@@ -489,6 +540,9 @@ def run_plot_timeseries(
                 interval=interval,
                 columns=1,
                 slide_channel_names=names,
+                shared_ylim=shared_ylim,
+                shared_summary_ylim=shared_summary_ylim,
+                shared_area_ylim=shared_area_ylim,
             )
         )
     if not written:

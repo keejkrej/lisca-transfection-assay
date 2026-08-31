@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from transfection import core as plot_layout
-from transfection.services import plot_auc, plot_timeseries
+from transfection.services import plot_timeseries
 from transfection.core import (
     boxplot_tick_labels,
     boxplot_x_axis_label,
@@ -65,6 +65,17 @@ def run_plot_fit(
     names = {sc: entry.sample_name for sc, entry in mapping.items()}
     written_paths: list[Path] = list(publish_sample_tables_xlsx(workspace, mapping, "fit"))
     loaded_tables: list[pd.DataFrame] = []
+    _ = columns
+    corrected_arrays = [
+        plot_timeseries.panel_values(table, "corrected")
+        for table in traces.values()
+        if table is not None and not table.empty and "corrected" in table.columns
+    ]
+    shared_fit_ylim = (
+        plot_timeseries.percentile_ylim(np.concatenate(corrected_arrays))
+        if corrected_arrays
+        else None
+    )
     for slide_channel, table in tables.items():
         dirname = dirnames.get(slide_channel)
         if dirname is None:
@@ -75,59 +86,38 @@ def run_plot_fit(
         df = load_fit_table(table)
         loaded_tables.append(df)
         names_for_sample = {**names, **labels_from_sample_column(df)}
-        output_paths = default_output_plot_paths_for_dir(dest_dir)
-        for parameter, label in PLOTTED_PARAMETERS:
-            output_plot = output_paths[parameter]
-            if parameter == "expression_rate":
-                write_fit_boxplot(
-                    df,
-                    parameter=parameter,
-                    ylabel=label,
-                    output_plot=output_plot,
-                    slide_channel_names=names_for_sample,
-                    log_scale=False,
-                )
-                written_paths.append(output_plot)
-                log_output_plot = plot_auc.log_output_plot_path(output_plot)
-                write_fit_boxplot(
-                    df,
-                    parameter=parameter,
-                    ylabel=label,
-                    output_plot=log_output_plot,
-                    slide_channel_names=names_for_sample,
-                    log_scale=True,
-                )
-                written_paths.append(log_output_plot)
-                continue
-            write_fit_boxplot(
-                df,
-                parameter=parameter,
-                ylabel=label,
-                output_plot=output_plot,
-                slide_channel_names=names_for_sample,
-                log_scale=False,
-            )
-            written_paths.append(output_plot)
-        fit_trace_plot = dest_dir / "traces_fit.png"
-        trace_table = traces.get(slide_channel)
         written_paths.extend(
             write_fitted_trace_plots(
                 df,
-                fit_trace_plot,
+                dest_dir / "traces_fit.png",
                 interval=interval,
                 slide_channel_names=names_for_sample,
-                traces_df=trace_table,
+                traces_df=traces.get(slide_channel),
+                shared_ylim=shared_fit_ylim,
             )
         )
-    if loaded_tables:
-        scatter_plot = workspace_results_dir(workspace) / "expression_rate_vs_onset_time.png"
+        scatter_plot = dest_dir / "expression_rate_vs_onset_time.png"
         write_expression_rate_vs_onset_scatter(
-            pd.concat(loaded_tables, ignore_index=True),
+            df,
             scatter_plot,
-            slide_channel_names=names,
-            columns=columns,
+            slide_channel_names=names_for_sample,
         )
         written_paths.append(scatter_plot)
+    if loaded_tables:
+        combined = pd.concat(loaded_tables, ignore_index=True)
+        names_all = {**names, **labels_from_sample_column(combined)}
+        results_dir = workspace_results_dir(workspace)
+        for parameter, label in PLOTTED_PARAMETERS:
+            output_plot = results_dir / f"{parameter}.png"
+            write_fit_boxplot(
+                combined,
+                parameter=parameter,
+                ylabel=label,
+                output_plot=output_plot,
+                slide_channel_names=names_all,
+                log_scale=False,
+            )
+            written_paths.append(output_plot)
     if not written_paths:
         raise ValueError("no fit panels to plot")
     return written_paths
@@ -184,10 +174,8 @@ def default_trace_plot_path(fit_csv: Path, output: Path | None) -> Path:
 
 
 def default_scatter_plot_path(fit_csv: Path, output: Path | None) -> Path:
-    if output is not None:
-        return output.resolve() / "expression_rate_vs_onset_time.png"
-    workspace = infer_workspace_root(fit_csv)
-    return workspace_results_dir(workspace) / "expression_rate_vs_onset_time.png"
+    destination_dir = fit_csv.parent if output is None else output.resolve()
+    return destination_dir / "expression_rate_vs_onset_time.png"
 
 
 def write_fit_boxplot(
@@ -271,15 +259,6 @@ def pearson_annotation(r: float | None, n: int) -> str:
     return f"r = {r:.2f}\nn = {n}"
 
 
-def scatter_sample_channels(df: pd.DataFrame, slide_channel_names: dict[int, str]) -> list[int]:
-    """Sample order for the scatter grid: sorted slide_channel, same as traces."""
-    if "slide_channel" in df.columns:
-        return sorted(int(channel) for channel in df["slide_channel"].dropna().unique().tolist())
-    if slide_channel_names:
-        return sorted(slide_channel_names)
-    return [0]
-
-
 def write_expression_rate_vs_onset_scatter(
     df: pd.DataFrame,
     output_plot: Path,
@@ -287,53 +266,42 @@ def write_expression_rate_vs_onset_scatter(
     slide_channel_names: dict[int, str],
     columns: int | None = None,
 ) -> None:
+    _ = columns
     scatter_df = successful_finite_fit_df(df, "onset_time", "expression_rate")
     if scatter_df.empty:
         raise ValueError("No successful finite fits available to plot expression rate vs onset time")
 
-    channels = scatter_sample_channels(df, slide_channel_names)
-    fig, axes, _rows, _cols = plot_timeseries.open_sample_subplot_grid(len(channels), columns)
-    axes_flat = axes.flatten()
-
-    for ax, slide_channel in zip(axes_flat, channels, strict=False):
-        if "slide_channel" in scatter_df.columns:
-            panel = scatter_df.loc[scatter_df["slide_channel"] == slide_channel]
-        else:
-            panel = scatter_df
-        x = panel["onset_time"].to_numpy(dtype=float) if not panel.empty else np.array([], dtype=float)
-        y = (
-            panel["expression_rate"].to_numpy(dtype=float)
-            if not panel.empty
-            else np.array([], dtype=float)
-        )
+    x = scatter_df["onset_time"].to_numpy(dtype=float)
+    y = scatter_df["expression_rate"].to_numpy(dtype=float)
+    if "slide_channel" in scatter_df.columns:
+        slide_channel = int(scatter_df["slide_channel"].iloc[0])
         label = slide_channel_names.get(slide_channel, f"slide channel {slide_channel}")
-        color, _trace_alpha = trace_color_alpha_from_fluor_name(label)
-        if x.size:
-            ax.scatter(x, y, s=18, alpha=0.55, color=color)
-            x_low, x_high = plot_timeseries.percentile_ylim(x)
-            y_low, y_high = plot_timeseries.percentile_ylim(y)
-            ax.set_xlim(x_low, x_high)
-            ax.set_ylim(y_low, y_high)
-        ax.set_title(
-            plot_timeseries.subplot_title(
-                slide_channel, slide_channel_names=slide_channel_names
-            )
-        )
-        ax.set_xlabel("onset time (min)")
-        ax.set_ylabel("expression rate")
-        ax.text(
-            0.05,
-            0.95,
-            pearson_annotation(pearson_r(x, y), int(x.size)),
-            transform=ax.transAxes,
-            va="top",
-            ha="left",
-        )
+        title = plot_timeseries.subplot_title(slide_channel, slide_channel_names=slide_channel_names)
+    else:
+        label = next(iter(slide_channel_names.values()), "sample")
+        title = label
+    color, _trace_alpha = trace_color_alpha_from_fluor_name(label)
 
-    for ax in axes_flat[len(channels) :]:
-        ax.axis("off")
-
-    plot_timeseries.save_sample_subplot_grid(fig, output_plot)
+    fig, ax = plt.subplots(figsize=plot_layout.FIGURE_SIZE_SINGLE_IN)
+    ax.scatter(x, y, s=18, alpha=0.55, color=color)
+    ax.set_title(title)
+    ax.set_xlabel("onset time (min)")
+    ax.set_ylabel("expression rate")
+    x_low, x_high = plot_timeseries.percentile_ylim(x)
+    y_low, y_high = plot_timeseries.percentile_ylim(y)
+    ax.set_xlim(x_low, x_high)
+    ax.set_ylim(y_low, y_high)
+    ax.text(
+        0.05,
+        0.95,
+        pearson_annotation(pearson_r(x, y), int(x.size)),
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+    )
+    output_plot.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_plot, dpi=plot_layout.FIGURE_DPI, bbox_inches="tight")
+    plt.close(fig)
 
 
 def fitted_trace_values(times_minutes: np.ndarray, fit_row: pd.Series) -> np.ndarray:
@@ -357,13 +325,14 @@ def write_fitted_trace_plots(
     interval: float,
     slide_channel_names: dict[int, str],
     traces_df: pd.DataFrame | None,
+    shared_ylim: tuple[float, float] | None = None,
 ) -> list[Path]:
-    """Write one-panel `traces_fit.png` for this sample. No shared-y companion."""
+    """Write one-panel `traces_fit.png` and optional `traces_fit_shared_y.png`."""
     if traces_df is None or traces_df.empty:
         raise ValueError("No analysis traces matched this sample for traces_fit")
     df = traces_df.reset_index(drop=True)
     ylim = plot_timeseries.percentile_ylim(plot_timeseries.panel_values(df, "corrected"))
-    write_fitted_trace_grid(
+    write_fitted_trace_panel(
         fit_df,
         df,
         output_plot,
@@ -371,10 +340,22 @@ def write_fitted_trace_plots(
         slide_channel_names=slide_channel_names,
         ylim=ylim,
     )
-    return [output_plot]
+    written = [output_plot]
+    if shared_ylim is not None:
+        shared_plot = plot_timeseries.metric_shared_y_output_path(output_plot)
+        write_fitted_trace_panel(
+            fit_df,
+            df,
+            shared_plot,
+            interval=interval,
+            slide_channel_names=slide_channel_names,
+            ylim=shared_ylim,
+        )
+        written.append(shared_plot)
+    return written
 
 
-def write_fitted_trace_grid(
+def write_fitted_trace_panel(
     fit_df: pd.DataFrame,
     traces_df: pd.DataFrame,
     output_plot: Path,

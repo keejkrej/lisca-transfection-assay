@@ -1,7 +1,7 @@
 //! Synchronous full transfection pipeline (parity CLI / tests).
 //!
 //! Same stage order as the Python CLI and Studio: segment → timeseries →
-//! plot-timeseries → auc → plot-auc → fit → plot-fit. Sample mapping is read
+//! auc → fit → plot-timeseries → plot-auc → plot-fit. Sample mapping is read
 //! from `assay.json` only. Crop is not part of this crate.
 
 use std::path::Path;
@@ -40,11 +40,11 @@ pub fn run_pipeline_with_mode(
         )?;
     }
     run_timeseries_with_mode(workspace, &mapping, jobs, full_frame)?;
-    run_plot_timeseries(workspace, &mapping, interval, None)?;
     run_auc(workspace, interval)?;
-    run_plot_auc(workspace, &mapping)?;
     let max_onset = max_onset_minutes(assay_json);
     run_fit(workspace, interval, max_onset, default_fit_jobs())?;
+    run_plot_timeseries(workspace, &mapping, interval, None)?;
+    run_plot_auc(workspace, &mapping)?;
     run_plot_fit(workspace, &mapping, interval, None)?;
     Ok(())
 }

@@ -14,7 +14,7 @@ On a tiny synthetic workspace (`roi/` 4×4×4 T, 2 channels, one ROI, sample
 | AUC | `analysis/Pos1/auc.csv` | `1e-6` |
 | Kinetic fit | `analysis/Pos1/fit.csv` | `2e-2` vs Python CLI (grid-search / `lstsq` backends) |
 | Results tables | `results/condA/{traces,auc,fit}.xlsx` | same numeric columns as the analysis CSVs (xlsx values, not pixels) |
-| Plot-fit scatter | `results/expression_rate_vs_onset_time.png` | existence only (both CLIs; no pixel diff) |
+| Plot-fit scatter | `results/condA/expression_rate_vs_onset_time.png` | existence only (both CLIs; no pixel diff) |
 
 Plots are not pixel-compared. Crop / ND2 / CZI are out of scope.
 Smart-exclusion and SlimSAM stay in lisca. Optional ONNX pattern U-Net
@@ -24,17 +24,26 @@ Analysis stages (`timeseries` / `auc` / `fit`) are sample-agnostic: they write
 `analysis/PosN/*.csv` from `roi/` + `assay.json` interval/channels/maxOnset and
 do **not** require `samples[].name`. Plot stages read those CSVs and write
 `results/<sample>/` (xlsx + png). Missing `samples[]` fails at plot/results.
+Pipeline runs analysis stages then plot stages (each re-runnable).
 
-Both CLIs should write the same `results/<sample>/` PNG basenames for per-sample
-packs (one axes per sample; no `*_shared_y`):
+Both CLIs should write the same PNG basenames. Per-sample packs under
+`results/<sample>/` (one axes; no subplot grids, no `*_log`, no `area_summary`):
 
-- `baseline_intensity.png`, `protein_lifetime.png`, `mrna_lifetime.png`,
-  `onset_time.png`, `expression_rate.png`, `expression_rate_log.png`
-- `traces_fit.png`
+- `traces.xlsx`, `auc.xlsx`, `fit.xlsx`
+- `traces.png`, `traces_shared_y.png`, `traces_summary.png`,
+  `traces_summary_shared_y.png`, `area.png`, `area_shared_y.png`
+- `traces_fit.png`, `traces_fit_shared_y.png`
+- `expression_rate_vs_onset_time.png` (one scatter for this sample; Pearson r
+  and n; successful finite fits only; no shared-y)
 
-Plus one multi-sample scatter at `results/expression_rate_vs_onset_time.png`
-(one subplot per sample, same `subplot_grid_shape` / `figure_size_for_panels`
-as traces; Pearson r and n on each panel; successful finite fits only).
+Shared-y companions use the same traces as the autoscaled PNG with ylim
+computed across all samples.
+
+Cross-sample boxplots once at `results/` root (samples on x; already one
+shared-y figure each):
+
+- `auc.png`, `expression_rate.png`, `onset_time.png`,
+  `baseline_intensity.png`, `protein_lifetime.png`, `mrna_lifetime.png`
 
 CSV / table contract:
 
@@ -60,7 +69,7 @@ cargo test -p lisca-transfection
 `python_and_rust_csvs_match_on_synthetic_workspace`. That test compares
 `analysis/` CSVs, dumps `results/<sample>/*.xlsx` through pandas for a table
 compare, and checks that **both** Python `plot-fit` and Rust `run_plot_fit`
-write `results/expression_rate_vs_onset_time.png` (file exists and is
+write `results/condA/expression_rate_vs_onset_time.png` (file exists and is
 non-empty; plots are not pixel-compared). Install Python deps first
 (`install.sh`) so the test can spawn the CLI.
 

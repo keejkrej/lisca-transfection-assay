@@ -14,7 +14,8 @@ from transfection.services.plot_auc import (
 NAME = "plot-auc"
 HELP = (
     "Read analysis/PosN/auc.csv (never recomputes AUC) and write "
-    "results/<sample>/auc.xlsx plus auc.png / auc_log.png. Requires samples[].name."
+    "results/<sample>/auc.xlsx plus the cross-sample results/auc.png boxplot. "
+    "Requires samples[].name."
 )
 
 
@@ -36,8 +37,8 @@ def plot_auc(
             "--output",
             "-o",
             help=(
-                "Output PNG path for the linear-scale plot when plotting a single sample. "
-                "Default: results/<sample>/auc.png. Also writes auc_log.png."
+                "Output PNG path for the cross-sample AUC boxplot. "
+                "Default: results/auc.png."
             ),
         ),
     ] = None,

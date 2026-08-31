@@ -262,6 +262,11 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &[("--interval", &interval)],
     );
     assert_nonempty_png(&fit_scatter_png(&fixture.root), "python plot-fit");
+    assert_nonempty_png(
+        &fixture.root.join("results").join("auc.png"),
+        "python plot-auc",
+    );
+    assert_frozen_workspace_tree(&fixture.root, "python");
     let python_traces_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "traces"));
     let python_auc_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "auc"));
     let python_fit_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "fit"));
@@ -288,6 +293,10 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
     run_plot_auc(&fixture.root, &mapping).expect("rust plot-auc");
     run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("rust plot-fit");
     assert_nonempty_png(&fit_scatter_png(&fixture.root), "rust plot-fit");
+    assert_nonempty_png(
+        &fixture.root.join("results").join("auc.png"),
+        "rust plot-auc",
+    );
     compare_csv_numeric_str(
         &dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "traces")),
         &python_traces_xlsx,
@@ -314,6 +323,7 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         ],
         FIT_CLI_REL_TOL,
     );
+    assert_frozen_workspace_tree(&fixture.root, "rust");
 }
 
 #[test]
@@ -332,37 +342,159 @@ fn plot_fit_writes_expression_rate_vs_onset_time_png() {
         scatter.metadata().expect("scatter metadata").len() > 0,
         "scatter PNG should be non-empty"
     );
-    for name in [
-        "onset_time.png",
-        "expression_rate.png",
-        "traces_fit.png",
-        "fit.xlsx",
-    ] {
+    for name in ["traces_fit.png", "traces_fit_shared_y.png", "fit.xlsx", FIT_SCATTER_PNG] {
         let path = sample_results_dir(&fixture.root).join(name);
         assert!(
             path.is_file(),
-            "expected existing fit output {}",
+            "expected existing per-sample fit output {}",
             path.display()
         );
     }
-    assert!(
-        !sample_results_dir(&fixture.root)
-            .join("traces_fit_shared_y.png")
-            .exists(),
-        "must not write traces_fit_shared_y.png"
-    );
-    assert!(
-        !sample_results_dir(&fixture.root).join(FIT_SCATTER_PNG).exists(),
-        "scatter belongs at results/{FIT_SCATTER_PNG}, not per-sample"
-    );
-    assert!(
-        !fixture.root.join("results").join("auc.csv").exists(),
-        "must not write combined results/auc.csv"
-    );
+    assert_forbidden_result_files(&fixture.root);
+    for name in [
+        "onset_time.png",
+        "expression_rate.png",
+        "baseline_intensity.png",
+        "protein_lifetime.png",
+        "mrna_lifetime.png",
+    ] {
+        let path = fixture.root.join("results").join(name);
+        assert!(
+            path.is_file(),
+            "expected cross-sample boxplot {}",
+            path.display()
+        );
+        assert!(
+            !sample_results_dir(&fixture.root).join(name).exists(),
+            "must not write {name} under results/<sample>/"
+        );
+    }
 }
 
 const FIT_SCATTER_PNG: &str = "expression_rate_vs_onset_time.png";
 const SAMPLE_DIRNAME: &str = "condA";
+
+const ANALYSIS_CSVS: &[&str] = &["ch1.csv", "auc.csv", "fit.csv"];
+const SAMPLE_XLSX: &[&str] = &["traces.xlsx", "auc.xlsx", "fit.xlsx"];
+const SAMPLE_PNGS: &[&str] = &[
+    "traces.png",
+    "traces_shared_y.png",
+    "traces_summary.png",
+    "traces_summary_shared_y.png",
+    "area.png",
+    "area_shared_y.png",
+    "traces_fit.png",
+    "traces_fit_shared_y.png",
+    "expression_rate_vs_onset_time.png",
+];
+const ROOT_PNGS: &[&str] = &[
+    "auc.png",
+    "expression_rate.png",
+    "onset_time.png",
+    "baseline_intensity.png",
+    "protein_lifetime.png",
+    "mrna_lifetime.png",
+];
+const FORBIDDEN_NAMES: &[&str] = &[
+    "area_summary.png",
+    "auc_log.png",
+    "expression_rate_log.png",
+    "onset_time_log.png",
+    "baseline_intensity_log.png",
+    "protein_lifetime_log.png",
+    "mrna_lifetime_log.png",
+    "expression_rate_vs_onset_time_shared_y.png",
+    "auc.csv",
+    "fit.csv",
+];
+
+fn assert_frozen_workspace_tree(workspace: &Path, side: &str) {
+    assert!(
+        !workspace.join("timeseries").exists(),
+        "{side}: must not write a timeseries/ folder"
+    );
+    let analysis_pos = workspace.join("analysis").join("Pos1");
+    for name in ANALYSIS_CSVS {
+        let path = analysis_pos.join(name);
+        assert!(
+            path.is_file(),
+            "{side}: expected analysis csv {}",
+            path.display()
+        );
+    }
+    if analysis_pos.is_dir() {
+        for entry in fs::read_dir(&analysis_pos).expect("read analysis/Pos1") {
+            let path = entry.expect("analysis entry").path();
+            let ext = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+            assert_eq!(
+                ext, "csv",
+                "{side}: analysis/PosN must be csv only, found {}",
+                path.display()
+            );
+        }
+    }
+    assert_no_csv_under_results(workspace, side);
+    let sample_dir = sample_results_dir(workspace);
+    for name in SAMPLE_XLSX.iter().chain(SAMPLE_PNGS.iter()) {
+        let path = sample_dir.join(name);
+        assert!(
+            path.is_file(),
+            "{side}: expected per-sample {}",
+            path.display()
+        );
+        if path.extension().and_then(|ext| ext.to_str()) == Some("png") {
+            assert_nonempty_png(&path, side);
+        }
+    }
+    for name in ROOT_PNGS {
+        let path = workspace.join("results").join(name);
+        assert_nonempty_png(&path, side);
+        assert!(
+            !sample_dir.join(name).exists(),
+            "{side}: must not write {name} under results/<sample>/"
+        );
+    }
+    assert_forbidden_result_files(workspace);
+}
+
+fn assert_no_csv_under_results(workspace: &Path, side: &str) {
+    let results = workspace.join("results");
+    let Ok(entries) = fs::read_dir(&results) else {
+        panic!("{side}: missing results/");
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("csv") {
+            panic!("{side}: must not write csv under results/: {}", path.display());
+        }
+        if path.is_dir() {
+            if let Ok(children) = fs::read_dir(&path) {
+                for child in children.flatten() {
+                    let child_path = child.path();
+                    if child_path.extension().and_then(|ext| ext.to_str()) == Some("csv") {
+                        panic!(
+                            "{side}: must not write csv under results/: {}",
+                            child_path.display()
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn assert_forbidden_result_files(workspace: &Path) {
+    for name in FORBIDDEN_NAMES {
+        assert!(
+            !sample_results_dir(workspace).join(name).exists(),
+            "must not write {name} under results/<sample>/"
+        );
+        assert!(
+            !workspace.join("results").join(name).exists(),
+            "must not write results/{name}"
+        );
+    }
+}
 
 fn sample_results_dir(workspace: &Path) -> PathBuf {
     workspace.join("results").join(SAMPLE_DIRNAME)
@@ -373,7 +505,7 @@ fn sample_xlsx(workspace: &Path, kind: &str) -> PathBuf {
 }
 
 fn fit_scatter_png(workspace: &Path) -> PathBuf {
-    workspace.join("results").join(FIT_SCATTER_PNG)
+    sample_results_dir(workspace).join(FIT_SCATTER_PNG)
 }
 
 fn assert_nonempty_png(path: &Path, side: &str) {

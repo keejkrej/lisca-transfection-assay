@@ -47,17 +47,17 @@ def run_pipeline(
         mapping=config.mapping or None,
         skip_segment=skip_segment,
     )
-    plot_timeseries.run_plot_timeseries(
-        metrics_dir=workspace,
-        interval=interval,
-    )
     auc.run_auc(workspace=workspace, interval=interval)
-    plot_auc.run_plot_auc(auc_csv=workspace)
     fit.run_fit(
         workspace=workspace,
         interval=interval,
         max_onset_minutes=max_onset,
     )
+    plot_timeseries.run_plot_timeseries(
+        metrics_dir=workspace,
+        interval=interval,
+    )
+    plot_auc.run_plot_auc(auc_csv=workspace)
     plot_fit.run_plot_fit(workspace, output=None, interval=interval, columns=None)
     return PipelineResult(
         workspace=workspace,
