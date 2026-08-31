@@ -26,6 +26,13 @@ DEFAULT_INTERVAL_MINUTES = 10.0
 DEFAULT_MAX_ONSET_MINUTES = 120.0
 
 
+MISSING_SAMPLES_FOR_PLOT = (
+    "plot/results stages require assay.json samples[] with a non-empty name "
+    "to group analysis/ into results/<sample>/. timeseries, auc, and fit do not "
+    "need sample names (they write analysis/PosN/*.csv from roi/ + analysis.channels)."
+)
+
+
 @dataclass(frozen=True)
 class AssayConfig:
     path: Path
@@ -33,6 +40,8 @@ class AssayConfig:
     name: str
     data_path: str
     mapping: SlideMapping
+    mask_channel: int
+    signal_channels: tuple[int, ...]
     interval_minutes: float | None
     max_onset_minutes: float
     skip_segment: bool
@@ -79,8 +88,6 @@ def build_slide_mapping_from_assay(
             raise ValueError(f"{source}: samples[{index}] must be an object")
 
         sample_name = str(row.get("name", "")).strip()
-        if not sample_name:
-            continue
 
         slide_channel = _require_nonneg_int_field(
             row, "slideChannel", source=source, index=index, where="samples"
@@ -150,6 +157,43 @@ def require_interval_minutes(config: AssayConfig, *, override: float | None = No
     return config.interval_minutes
 
 
+def resolve_interval_minutes(
+    workspace: Path,
+    *,
+    assay: Path | None = None,
+    override: float | None = None,
+) -> float:
+    """Interval from ``--interval`` or assay.json; errors if neither is available."""
+    if override is not None:
+        if override <= 0:
+            raise ValueError(f"--interval must be > 0, got {override}")
+        return override
+    assay_path = resolve_assay_path(workspace, assay)
+    if not assay_path.is_file():
+        raise ValueError(
+            f"missing --interval and no assay.json at {assay_path} "
+            "(pass --interval when replotting a copied sample folder)"
+        )
+    return require_interval_minutes(load_assay(assay_path))
+
+
+def named_sample_mapping(config: AssayConfig) -> SlideMapping:
+    """Named ``samples[]`` rows only. Empty names are ignored (analysis still ran)."""
+    return {
+        slide_channel: entry
+        for slide_channel, entry in config.mapping.items()
+        if entry.sample_name
+    }
+
+
+def require_named_samples(config: AssayConfig) -> SlideMapping:
+    """Plot/results grouping. Fails if no non-empty ``samples[].name``."""
+    named = named_sample_mapping(config)
+    if not named:
+        raise ValueError(f"{config.path}: {MISSING_SAMPLES_FOR_PLOT}")
+    return named
+
+
 def _parse_assay(raw: dict[str, Any], *, path: Path) -> AssayConfig:
     assay_type = str(raw.get("type") or "").strip() or "unknown"
     name = str(raw.get("name") or "").strip() or assay_type
@@ -158,10 +202,34 @@ def _parse_assay(raw: dict[str, Any], *, path: Path) -> AssayConfig:
     data_path = str(data.get("path") or "").strip() if isinstance(data, dict) else ""
 
     samples = raw.get("samples")
-    if samples is None:
-        raise ValueError(f"{path}: missing samples array")
     analysis = raw.get("analysis") if isinstance(raw.get("analysis"), dict) else {}
-    mapping = build_slide_mapping_from_assay(samples, analysis if isinstance(analysis, dict) else None, source=path)
+    if samples is None:
+        mapping = {}
+    elif not isinstance(samples, list):
+        raise ValueError(f"{path}: samples must be an array")
+    elif not samples:
+        mapping = {}
+    else:
+        mapping = build_slide_mapping_from_assay(
+            samples, analysis if isinstance(analysis, dict) else None, source=path
+        )
+
+    default_mask, default_signal = _parse_default_channels(
+        analysis if isinstance(analysis, dict) else None, source=path
+    )
+    if default_mask is None or default_signal is None:
+        raise ValueError(f"{path}: missing analysis.channels")
+    signal_channels = tuple(default_signal)
+    extra_signals = _parse_sample_channel_overrides(
+        analysis if isinstance(analysis, dict) else None, source=path
+    )
+    if extra_signals:
+        merged = list(signal_channels)
+        for _slide, (_mask, signals) in extra_signals.items():
+            for channel in signals:
+                if channel not in merged:
+                    merged.append(channel)
+        signal_channels = tuple(merged)
 
     interval_obj = raw.get("interval") if isinstance(raw.get("interval"), dict) else {}
     interval = parse_interval_minutes(
@@ -193,6 +261,8 @@ def _parse_assay(raw: dict[str, Any], *, path: Path) -> AssayConfig:
         name=name,
         data_path=data_path,
         mapping=mapping,
+        mask_channel=default_mask,
+        signal_channels=signal_channels,
         interval_minutes=interval,
         max_onset_minutes=max_onset,
         skip_segment=skip_segment,

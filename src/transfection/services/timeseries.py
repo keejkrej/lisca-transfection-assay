@@ -10,15 +10,15 @@ import pandas as pd
 
 from transfection.core import (
     SlideMapping,
-    compute_full_frame_roi_metrics,
-    compute_masked_roi_metrics,
+    default_position_timeseries_csv_path,
+    discover_roi_positions,
     load_assay_for_workspace,
     position_dir,
     read_position_index,
     validate_channel_index,
-    write_metrics_csv,
+    write_csv_only,
 )
-from transfection.core.export import parallel_xlsx_path
+from transfection.core.metrics import compute_full_frame_roi_metrics, compute_masked_roi_metrics
 from transfection.core.parallel import worker_count
 
 
@@ -31,15 +31,6 @@ CsvWrittenCallback = Callable[[int, Path, int], None]
 class SlideTimeseriesRunResult:
     written_outputs: list[tuple[int, Path, int]]
     skipped_positions: dict[int, list[int]]
-
-
-def default_position_timeseries_csv_path(
-    workspace: Path,
-    position: int,
-    signal_channel: int,
-) -> Path:
-    csv_path = workspace / "timeseries" / f"Pos{position}" / f"ch{signal_channel}.csv"
-    return csv_path.resolve()
 
 
 def simplify_metrics(df: pd.DataFrame) -> pd.DataFrame:
@@ -110,40 +101,80 @@ def _write_position_csv(
         position=position,
         signal_channel=signal_channel,
     )
-    write_metrics_csv(
-        simplify_metrics(metrics_df),
-        resolved_output_csv,
-    )
+    write_csv_only(simplify_metrics(metrics_df), resolved_output_csv)
     return (resolved_output_csv, len(metrics_df))
+
+
+def _analysis_tasks(
+    workspace: Path,
+    *,
+    mapping: SlideMapping | None,
+    mask_channel: int,
+    signal_channels: list[int],
+    full_frame: bool,
+) -> list[tuple[str, int, int, int, int, bool]]:
+    if mapping:
+        return [
+            (
+                str(workspace),
+                slide_channel,
+                signal_channel,
+                entry.mask_channel if mapping else mask_channel,
+                resolved_pos,
+                full_frame,
+            )
+            for slide_channel, entry in mapping.items()
+            for signal_channel in entry.signal_channels
+            for resolved_pos in entry.positions
+        ]
+    positions = discover_roi_positions(workspace)
+    return [
+        (str(workspace), 0, signal_channel, mask_channel, position, full_frame)
+        for position in positions
+        for signal_channel in signal_channels
+    ]
 
 
 def run_slide_timeseries(
     workspace: Path,
     *,
-    mapping: SlideMapping,
+    mapping: SlideMapping | None = None,
     mask_channel: int | None = None,
+    signal_channels: list[int] | None = None,
     full_frame: bool = False,
     correction_quartile: float = DELIVERY_CORRECTION_QUARTILE,
     on_csv_written: CsvWrittenCallback | None = None,
 ) -> SlideTimeseriesRunResult:
     workspace = workspace.resolve()
-    slide_positions = mapping
-    position_tasks: list[tuple[str, int, int, int, int, bool]] = [
-        (
-            str(workspace),
-            slide_channel,
-            signal_channel,
-            entry.mask_channel if mask_channel is None else mask_channel,
-            resolved_pos,
-            full_frame,
-        )
-        for slide_channel, entry in slide_positions.items()
-        for signal_channel in entry.signal_channels
-        for resolved_pos in entry.positions
-    ]
+    if mapping:
+        if mask_channel is None:
+            mask_channel = next(iter(mapping.values())).mask_channel
+        if signal_channels is None:
+            signals: list[int] = []
+            for entry in mapping.values():
+                for channel in entry.signal_channels:
+                    if channel not in signals:
+                        signals.append(channel)
+            signal_channels = signals
+    elif mask_channel is None or signal_channels is None:
+        config = load_assay_for_workspace(workspace)
+        if mask_channel is None:
+            mask_channel = config.mask_channel
+        if signal_channels is None:
+            signal_channels = list(config.signal_channels)
+        if mapping is None:
+            mapping = config.mapping or None
+
+    position_tasks = _analysis_tasks(
+        workspace,
+        mapping=mapping,
+        mask_channel=mask_channel,
+        signal_channels=signal_channels or [],
+        full_frame=full_frame,
+    )
 
     if not position_tasks:
-        raise ValueError("assay mapping defines no valid positions")
+        raise ValueError("no roi/PosN directories (and no samples[] positions) to analyze")
 
     skipped_positions: dict[int, list[int]] = defaultdict(list)
     written_outputs: list[tuple[int, Path, int]] = []
@@ -193,10 +224,10 @@ def run_slide_timeseries(
                 for slide_channel, positions in sorted(skipped_positions.items())
             )
             raise ValueError(
-                f"No ROI directories found for positions in assay mapping. "
+                f"No ROI directories found for analysis positions. "
                 f"Skipped positions: {skipped_summary}"
             )
-        raise ValueError("assay mapping defines no valid positions")
+        raise ValueError("no roi/PosN directories (and no samples[] positions) to analyze")
 
     written_outputs.sort(key=lambda item: item[0])
     return SlideTimeseriesRunResult(
@@ -209,19 +240,10 @@ def run_slide_timeseries(
 
 
 def format_written_timeseries_csv_message(position: int, output_csv: Path, row_count: int) -> str:
-    output_xlsx = parallel_xlsx_path(output_csv)
-    message = (
-        f"Wrote metrics CSV for Pos{position} with {row_count} rows: "
+    return (
+        f"Wrote analysis CSV for Pos{position} with {row_count} rows: "
         f"{output_csv}"
     )
-    if output_xlsx.is_file():
-        message += (
-            f"\nWrote metrics XLSX for Pos{position} with {row_count} rows: "
-            f"{output_xlsx}"
-        )
-    else:
-        message += f"\nSkipped metrics XLSX (exceeds Excel row limit): {output_xlsx}"
-    return message
 
 
 def format_skipped_positions_message(skipped_positions: dict[int, list[int]]) -> str:
@@ -243,16 +265,18 @@ def run_timeseries(
     correction_quartile: float = DELIVERY_CORRECTION_QUARTILE,
     on_csv_written: CsvWrittenCallback | None = None,
 ) -> SlideTimeseriesRunResult:
-    if mapping is None or skip_segment is None:
-        config = load_assay_for_workspace(workspace, assay)
-        if mapping is None:
-            mapping = config.mapping
-        if skip_segment is None:
-            skip_segment = config.skip_segment
+    config = load_assay_for_workspace(workspace, assay)
+    if mapping is None:
+        mapping = config.mapping or None
+    if skip_segment is None:
+        skip_segment = config.skip_segment
+    if mask_channel is None:
+        mask_channel = config.mask_channel
     return run_slide_timeseries(
         workspace,
         mapping=mapping,
         mask_channel=mask_channel,
+        signal_channels=list(config.signal_channels),
         full_frame=skip_segment,
         correction_quartile=correction_quartile,
         on_csv_written=on_csv_written,

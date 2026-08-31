@@ -38,9 +38,6 @@ pub fn build_slide_mapping_from_parts(
     let mut mapping = BTreeMap::new();
     for row in samples.iter() {
         let sample_name = row.name.trim().to_string();
-        if sample_name.is_empty() {
-            continue;
-        }
         let slide_channel = row.slide_channel;
         let (mask, signal) = if let Some((mask, signal)) = overrides.get(&slide_channel) {
             (*mask, signal.clone())
@@ -68,10 +65,25 @@ pub fn build_slide_mapping_from_parts(
         );
     }
 
-    if mapping.is_empty() {
-        return Err("no samples for selected slide channel".to_string());
-    }
     Ok(mapping)
+}
+
+pub const MISSING_NAMED_SAMPLES: &str = "plot/results stages require assay.json samples[] with a non-empty name to group analysis/ into results/<sample>/. timeseries, auc, and fit do not need sample names.";
+
+pub fn named_sample_mapping(mapping: &SlideMapping) -> SlideMapping {
+    mapping
+        .iter()
+        .filter(|(_, entry)| !entry.sample_name.is_empty())
+        .map(|(channel, entry)| (*channel, entry.clone()))
+        .collect()
+}
+
+pub fn require_named_samples(mapping: &SlideMapping) -> Result<SlideMapping, String> {
+    let named = named_sample_mapping(mapping);
+    if named.is_empty() {
+        return Err(MISSING_NAMED_SAMPLES.to_string());
+    }
+    Ok(named)
 }
 
 pub use crate::assay::resolve_assay_path;
@@ -202,5 +214,32 @@ mod tests {
     fn expands_inclusive_position_ranges() {
         assert_eq!(parse_positions("1:4").unwrap(), vec![1, 2, 3, 4]);
         assert_eq!(parse_positions("3").unwrap(), vec![3]);
+    }
+
+    #[test]
+    fn empty_sample_names_are_kept_for_analysis() {
+        let json = r#"{
+            "samples": [{ "slideChannel": 0, "name": "", "positions": "1" }],
+            "analysis": { "channels": { "mask": 0, "signal": [1] } }
+        }"#;
+        let assay: crate::assay::AssayJsonFile = serde_json::from_str(json).unwrap();
+        let mapping = build_slide_mapping(&assay).unwrap();
+        assert_eq!(mapping.get(&0).unwrap().sample_name, "");
+        assert!(named_sample_mapping(&mapping).is_empty());
+        let err = require_named_samples(&mapping).unwrap_err();
+        assert!(err.contains("plot/results stages require"));
+        assert!(err.contains("timeseries, auc, and fit do not need sample names"));
+    }
+
+    #[test]
+    fn missing_samples_are_ok_for_analysis_mapping() {
+        let json = r#"{
+            "analysis": { "channels": { "mask": 0, "signal": [1] } }
+        }"#;
+        let assay: crate::assay::AssayJsonFile = serde_json::from_str(json).unwrap();
+        let mapping = build_slide_mapping(&assay).unwrap();
+        assert!(mapping.is_empty());
+        let err = require_named_samples(&mapping).unwrap_err();
+        assert!(err.contains("plot/results stages require"));
     }
 }

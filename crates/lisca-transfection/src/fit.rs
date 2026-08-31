@@ -1,14 +1,14 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use ndarray::linspace;
 use rayon::prelude::*;
 
 use crate::array::{evaluate_kinetic_candidate, KineticFitCoeffs};
-use crate::csv_io::write_csv;
+use crate::csv_io::write_csv_only;
 
 use super::segment::default_jobs;
 use super::traces::{build_fit_tasks, FitTraceTask};
-use crate::slide::{load_mapping_for_workspace, SlideMapping};
 use crate::timeseries::discover_timeseries_csvs;
 
 const RATE_COARSE_CANDIDATE_COUNT: usize = 24;
@@ -20,9 +20,8 @@ pub fn run_fit(
     interval: f64,
     max_onset_minutes: f64,
     jobs: usize,
-) -> Result<PathBuf, String> {
-    let mapping = load_mapping_for_workspace(workspace, None)?;
-    run_fit_with_mapping(workspace, interval, max_onset_minutes, jobs, &mapping)
+) -> Result<Vec<PathBuf>, String> {
+    run_fit_on_workspace(workspace, interval, max_onset_minutes, jobs)
 }
 
 pub fn run_fit_with_mapping(
@@ -30,8 +29,17 @@ pub fn run_fit_with_mapping(
     interval: f64,
     max_onset_minutes: f64,
     jobs: usize,
-    mapping: &SlideMapping,
-) -> Result<PathBuf, String> {
+    _mapping: &crate::slide::SlideMapping,
+) -> Result<Vec<PathBuf>, String> {
+    run_fit_on_workspace(workspace, interval, max_onset_minutes, jobs)
+}
+
+fn run_fit_on_workspace(
+    workspace: &Path,
+    interval: f64,
+    max_onset_minutes: f64,
+    jobs: usize,
+) -> Result<Vec<PathBuf>, String> {
     if interval <= 0.0 {
         return Err(format!("interval must be > 0, got {interval}"));
     }
@@ -40,8 +48,8 @@ pub fn run_fit_with_mapping(
             "max_onset_minutes must be >= 0, got {max_onset_minutes}"
         ));
     }
-    let csvs = discover_timeseries_csvs(&workspace.join("timeseries"))?;
-    let tasks = build_fit_tasks(&csvs, mapping)?;
+    let csvs = discover_timeseries_csvs(&workspace.join("analysis"))?;
+    let tasks = build_fit_tasks(&csvs)?;
     let jobs = jobs.max(1);
     let first_pass = run_fit_tasks(&tasks, interval, None, max_onset_minutes, jobs);
     let pooled = pooled_protein_decay_rate(&first_pass);
@@ -50,12 +58,10 @@ pub fn run_fit_with_mapping(
     } else {
         tasks
             .iter()
-            .map(|task| failed_fit_row(task.slide_channel, task.pos, task.roi))
+            .map(|task| failed_fit_row(task.pos, task.channel, task.roi))
             .collect()
     };
-    let output = workspace.join("results").join("fit.csv");
-    write_fit_csv(&output, &rows)?;
-    Ok(output)
+    write_position_fit_tables(workspace, &rows)
 }
 
 fn run_fit_tasks(
@@ -89,8 +95,8 @@ fn fit_task(
     let times: Vec<f64> = task.times.iter().map(|value| value * interval).collect();
     let values = &task.values;
     match fit_trace_points(&times, values, fixed_protein_decay_rate, max_onset_minutes) {
-        Some(result) => successful_fit_row(task.slide_channel, task.pos, task.roi, result),
-        None => failed_fit_row(task.slide_channel, task.pos, task.roi),
+        Some(result) => successful_fit_row(task.pos, task.channel, task.roi, result),
+        None => failed_fit_row(task.pos, task.channel, task.roi),
     }
 }
 
@@ -340,8 +346,8 @@ fn pooled_protein_decay_rate(rows: &[FitCsvRow]) -> Option<f64> {
 
 #[derive(Debug, Clone)]
 struct FitCsvRow {
-    slide_channel: u32,
     pos: i64,
+    channel: u32,
     roi: i64,
     baseline_intensity: Option<f64>,
     protein_decay_rate: Option<f64>,
@@ -355,14 +361,14 @@ struct FitCsvRow {
 }
 
 fn successful_fit_row(
-    slide_channel: u32,
     pos: i64,
+    channel: u32,
     roi: i64,
     result: KineticFitCoeffs,
 ) -> FitCsvRow {
     FitCsvRow {
-        slide_channel,
         pos,
+        channel,
         roi,
         baseline_intensity: Some(result.baseline_intensity),
         protein_decay_rate: Some(result.protein_decay_rate),
@@ -378,10 +384,10 @@ fn successful_fit_row(
     }
 }
 
-fn failed_fit_row(slide_channel: u32, pos: i64, roi: i64) -> FitCsvRow {
+fn failed_fit_row(pos: i64, channel: u32, roi: i64) -> FitCsvRow {
     FitCsvRow {
-        slide_channel,
         pos,
+        channel,
         roi,
         baseline_intensity: None,
         protein_decay_rate: None,
@@ -395,27 +401,63 @@ fn failed_fit_row(slide_channel: u32, pos: i64, roi: i64) -> FitCsvRow {
     }
 }
 
-fn write_fit_csv(path: &Path, rows: &[FitCsvRow]) -> Result<(), String> {
-    let headers = [
-        "slide_channel",
-        "pos",
-        "roi",
-        "baseline_intensity",
-        "protein_decay_rate",
-        "protein_lifetime",
-        "mrna_decay_rate",
-        "mrna_lifetime",
-        "onset_time",
-        "expression_amplitude",
-        "expression_rate",
-        "success",
-    ];
+fn write_position_fit_tables(workspace: &Path, rows: &[FitCsvRow]) -> Result<Vec<PathBuf>, String> {
+    let mut grouped: BTreeMap<i64, Vec<&FitCsvRow>> = BTreeMap::new();
+    for row in rows {
+        grouped.entry(row.pos).or_default().push(row);
+    }
+    let mut written = Vec::new();
+    for (pos, part) in grouped {
+        let multi = {
+            let mut channels = part.iter().map(|row| row.channel).collect::<Vec<_>>();
+            channels.sort_unstable();
+            channels.dedup();
+            channels.len() > 1
+        };
+        let output = workspace
+            .join("analysis")
+            .join(format!("Pos{pos}"))
+            .join("fit.csv");
+        let (headers, csv_rows) = fit_csv_records(&part, multi);
+        let header_refs: Vec<&str> = headers.iter().map(String::as_str).collect();
+        write_csv_only(&output, &header_refs, &csv_rows)?;
+        written.push(output);
+    }
+    if written.is_empty() {
+        return Err("No fit rows produced".to_string());
+    }
+    Ok(written)
+}
+
+fn fit_csv_records(rows: &[&FitCsvRow], include_channel: bool) -> (Vec<String>, Vec<Vec<String>>) {
+    let mut headers = Vec::new();
+    if include_channel {
+        headers.push("channel".to_string());
+    }
+    headers.extend(
+        [
+            "roi",
+            "baseline_intensity",
+            "protein_decay_rate",
+            "protein_lifetime",
+            "mrna_decay_rate",
+            "mrna_lifetime",
+            "onset_time",
+            "expression_amplitude",
+            "expression_rate",
+            "success",
+        ]
+        .into_iter()
+        .map(str::to_string),
+    );
     let csv_rows = rows
         .iter()
         .map(|row| {
-            vec![
-                row.slide_channel.to_string(),
-                row.pos.to_string(),
+            let mut values = Vec::new();
+            if include_channel {
+                values.push(row.channel.to_string());
+            }
+            values.extend([
                 row.roi.to_string(),
                 format_optional(row.baseline_intensity),
                 format_optional(row.protein_decay_rate),
@@ -426,10 +468,11 @@ fn write_fit_csv(path: &Path, rows: &[FitCsvRow]) -> Result<(), String> {
                 format_optional(row.expression_amplitude),
                 format_optional(row.expression_rate),
                 if row.success { "true" } else { "false" }.to_string(),
-            ]
+            ]);
+            values
         })
         .collect::<Vec<_>>();
-    write_csv(path, &headers, &csv_rows)
+    (headers, csv_rows)
 }
 
 fn format_optional(value: Option<f64>) -> String {

@@ -10,14 +10,13 @@ import pandas as pd
 
 from transfection import core as paths
 from transfection.core import (
-    SlideMapping,
     load_assay_for_workspace,
     load_timeseries_csv,
     parse_timeseries_csv_path,
-    resolve_slide_channel,
 )
-from transfection.core.export import parallel_xlsx_path, write_csv_and_parallel_xlsx
+from transfection.core.export import write_csv_only
 from transfection.core.parallel import worker_count
+from transfection.core.workspace import analysis_position_table_csv
 from transfection.services import auc
 
 
@@ -30,8 +29,6 @@ from transfection.services import auc
 #   expression_amplitude m0·kTL / (δ − β)  (intermediate fit coefficient)
 #   baseline_intensity   additive baseline (not a kinetic rate)
 OUTPUT_COLUMNS = (
-    "slide_channel",
-    "pos",
     "roi",
     "baseline_intensity",
     "protein_decay_rate",
@@ -43,6 +40,7 @@ OUTPUT_COLUMNS = (
     "expression_rate",
     "success",
 )
+OUTPUT_COLUMNS_WITH_CHANNEL = ("channel", *OUTPUT_COLUMNS)
 
 RATE_COARSE_CANDIDATE_COUNT = 24
 RATE_REFINE_CANDIDATE_COUNT = 12
@@ -59,30 +57,14 @@ class FitResult:
     expression_amplitude: float
 
 
-def integrate_fit_csvs(
-    timeseries_csvs: list[Path],
-    *,
-    interval: float,
-    mapping: SlideMapping,
-    output_csv: Path | None,
-) -> Path:
-    return run_fit_with_jobs(
-        timeseries_csvs,
-        interval=interval,
-        mapping=mapping,
-        output_csv=output_csv,
-        max_onset_minutes=0.0,
-    )
-
-
 def run_fit_with_jobs(
     timeseries_csvs: list[Path],
     *,
     interval: float,
-    mapping: SlideMapping,
     output_csv: Path | None,
     max_onset_minutes: float | None,
-) -> Path:
+    results_workspace: Path | None = None,
+) -> list[Path]:
     if interval <= 0:
         raise ValueError(f"--interval must be > 0, got {interval}")
     if max_onset_minutes is not None and max_onset_minutes < 0:
@@ -95,25 +77,28 @@ def run_fit_with_jobs(
     fit_df = compute_fit_table(
         resolved_csvs,
         interval=interval,
-        mapping=mapping,
         max_onset_minutes=max_onset_minutes,
     )
-    resolved_output_csv = default_output_csv_path(resolved_csvs, output_csv)
-    write_fit_csv(fit_df, resolved_output_csv)
-    return resolved_output_csv
+    workspace = results_workspace
+    if workspace is None:
+        if output_csv is not None:
+            raise ValueError("fit writes analysis/PosN/fit.csv; pass results_workspace")
+        raise ValueError("fit requires a workspace to write analysis/PosN/fit.csv")
+    return _write_position_fit_tables(fit_df, workspace=workspace)
 
 
-def default_output_csv_path(
+def integrate_fit_csvs(
     timeseries_csvs: list[Path],
-    output_csv: Path | None,
     *,
-    results_dir: Path | None = None,
-) -> Path:
-    if output_csv is not None:
-        return output_csv.resolve()
-    if results_dir is not None:
-        return auc.default_results_table_csv_path(results_dir, kind="fit")
-    return timeseries_csvs[0].with_name("fit.csv").resolve()
+    interval: float,
+    output_csv: Path | None,
+) -> list[Path]:
+    return run_fit_with_jobs(
+        timeseries_csvs,
+        interval=interval,
+        output_csv=output_csv,
+        max_onset_minutes=0.0,
+    )
 
 
 def fit_trace(
@@ -360,26 +345,23 @@ def compute_fit_table(
     timeseries_csvs: list[Path],
     *,
     interval: float,
-    mapping: SlideMapping,
     max_onset_minutes: float | None = 0.0,
 ) -> pd.DataFrame:
-    tasks: list[tuple[int | None, dict[str, int], list[float], list[float], float]] = []
+    tasks: list[tuple[int, int, dict[str, int], list[float], list[float], float]] = []
     for csv_path in timeseries_csvs:
         df = load_timeseries_csv(csv_path)
-        slide_channel = resolve_slide_channel(csv_path, mapping)
-        position, _signal_channel = parse_timeseries_csv_path(csv_path)
-        group_columns = [column for column in auc.GROUP_COLUMNS if column in df.columns]
-        if not group_columns:
-            raise ValueError(f"{csv_path} has no supported grouping columns: {auc.GROUP_COLUMNS}")
+        position, signal_channel = parse_timeseries_csv_path(csv_path)
+        if "roi" not in df.columns:
+            raise ValueError(f"{csv_path} has no roi column")
 
-        for group_key, trace_df in df.groupby(group_columns, sort=True):
+        for group_key, trace_df in df.groupby(["roi"], sort=True):
             if not isinstance(group_key, tuple):
                 group_key = (group_key,)
-            group_values = {column: int(value) for column, value in zip(group_columns, group_key, strict=True)}
-            group_values.setdefault("pos", position)
+            group_values = {"roi": int(group_key[0]), "pos": int(position), "channel": int(signal_channel)}
             tasks.append(
                 (
-                    slide_channel,
+                    position,
+                    signal_channel,
                     group_values,
                     trace_df["t"].astype(float).tolist(),
                     trace_df["corrected"].astype(float).tolist(),
@@ -393,7 +375,7 @@ def compute_fit_table(
     first_pass_results = _run_fit_tasks(tasks, fixed_protein_decay_rate=None)
     shared_protein_decay_rate = _pooled_protein_decay_rate(first_pass_results)
     if shared_protein_decay_rate is None:
-        rows = [_failed_fit_row(slide_channel, group_values) for slide_channel, group_values, *_ in tasks]
+        rows = [_failed_fit_row(group_values) for _pos, _ch, group_values, *_ in tasks]
     else:
         rows = _run_fit_tasks(
             tasks,
@@ -402,12 +384,12 @@ def compute_fit_table(
         )
 
     result = pd.DataFrame(rows)
-    sort_columns = [column for column in ("slide_channel", *auc.GROUP_COLUMNS) if column in result.columns]
-    return result.sort_values(sort_columns).reset_index(drop=True).loc[:, list(OUTPUT_COLUMNS)]
+    sort_columns = [column for column in ("pos", "channel", "roi") if column in result.columns]
+    return result.sort_values(sort_columns).reset_index(drop=True)
 
 
 def _run_fit_tasks(
-    tasks: list[tuple[int | None, dict[str, int], list[float], list[float], float]],
+    tasks: list[tuple[int, int, dict[str, int], list[float], list[float], float]],
     *,
     fixed_protein_decay_rate: float | None,
     max_onset_minutes: float | None = 0.0,
@@ -432,9 +414,8 @@ def _pooled_protein_decay_rate(rows: list[dict[str, object]]) -> float | None:
     return float(np.median(np.asarray(successful_rates, dtype=float)))
 
 
-def _failed_fit_row(slide_channel: int | None, group_values: dict[str, int]) -> dict[str, object]:
+def _failed_fit_row(group_values: dict[str, int]) -> dict[str, object]:
     return {
-        "slide_channel": slide_channel,
         **group_values,
         "baseline_intensity": None,
         "protein_decay_rate": None,
@@ -450,14 +431,14 @@ def _failed_fit_row(slide_channel: int | None, group_values: dict[str, int]) -> 
 
 def _fit_trace_task(
     payload: tuple[
-        tuple[int | None, dict[str, int], list[float], list[float], float],
+        tuple[int, int, dict[str, int], list[float], list[float], float],
         float | None,
         float | None,
     ]
 ) -> dict[str, object]:
     task, fixed_protein_decay_rate, max_onset_minutes = payload
-    slide_channel, group_values, raw_times, raw_values, interval = task
-    row: dict[str, object] = {"slide_channel": slide_channel, **group_values}
+    _position, _channel, group_values, raw_times, raw_values, interval = task
+    row: dict[str, object] = dict(group_values)
     trace_df = pd.DataFrame({"t": raw_times, "corrected": raw_values})
     fit_result = fit_trace(
         trace_df,
@@ -466,7 +447,7 @@ def _fit_trace_task(
         max_onset_minutes=max_onset_minutes,
     )
     if fit_result is None:
-        row.update(_failed_fit_row(slide_channel, group_values))
+        row.update(_failed_fit_row(group_values))
     else:
         row.update(
             {
@@ -477,14 +458,21 @@ def _fit_trace_task(
     return row
 
 
-def write_fit_csv(df: pd.DataFrame, output_csv: Path) -> None:
-    output_df = df.copy()
-    output_df["success"] = output_df["success"].map(lambda value: "true" if bool(value) else "false")
-    write_csv_and_parallel_xlsx(output_df, output_csv)
+def _write_position_fit_tables(fit_df: pd.DataFrame, *, workspace: Path) -> list[Path]:
+    written: list[Path] = []
+    for position, part in fit_df.groupby("pos", sort=True):
+        include_channel = part["channel"].nunique() > 1
+        columns = OUTPUT_COLUMNS_WITH_CHANNEL if include_channel else OUTPUT_COLUMNS
+        table = part.loc[:, [column for column in columns if column in part.columns]].copy()
+        table["success"] = table["success"].map(lambda value: "true" if bool(value) else "false")
+        output_csv = analysis_position_table_csv(workspace, int(position), "fit")
+        write_csv_only(table, output_csv)
+        written.append(output_csv)
+    return written
 
 
-def format_written_fit_csv_message(output_csv: Path) -> str:
-    return f"Wrote fit CSV: {output_csv}\nWrote fit XLSX: {parallel_xlsx_path(output_csv)}"
+def format_written_fit_csv_message(output_csvs: list[Path]) -> str:
+    return "\n".join(f"Wrote analysis fit CSV: {path}" for path in output_csvs)
 
 
 def run_fit(
@@ -493,15 +481,12 @@ def run_fit(
     interval: float,
     max_onset_minutes: float = 0.0,
     assay: Path | None = None,
-) -> Path:
-    config = load_assay_for_workspace(workspace, assay)
+) -> list[Path]:
     timeseries_csvs = paths.discover_timeseries_csvs(paths.workspace_timeseries_dir(workspace))
-    results_dir = paths.workspace_results_dir(workspace)
-    output_csv = default_output_csv_path(timeseries_csvs, None, results_dir=results_dir)
     return run_fit_with_jobs(
         timeseries_csvs,
         interval=interval,
-        mapping=config.mapping,
-        output_csv=output_csv,
+        output_csv=None,
         max_onset_minutes=max_onset_minutes,
+        results_workspace=workspace,
     )

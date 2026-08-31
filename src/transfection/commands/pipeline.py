@@ -12,6 +12,8 @@ NAME = "pipeline"
 HELP = (
     "Run the full transfection order from assay.json: "
     "segment → timeseries → plot-timeseries → auc → plot-auc → fit → plot-fit. "
+    "Analysis stages write analysis/ only; plot stages read analysis/ and write "
+    "results/<sample>/ (xlsx + png) without recomputing. "
     "analysis.skipSegment skips segment and uses full-ROI timeseries."
 )
 

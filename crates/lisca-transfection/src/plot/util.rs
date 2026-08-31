@@ -1,12 +1,10 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::array::percentile;
 use crate::slide::SlideMapping;
-use crate::timeseries::resolve_slide_channel;
 
-/// Historical CLI default when callers force an explicit column count.
-/// Auto layout (`columns = None`) prefers [`subplot_grid_shape`] instead.
+/// Historical CLI default when callers pass an explicit `--columns` (unused).
 pub const DEFAULT_PLOT_COLUMNS: usize = 3;
 
 pub fn slide_channel_labels(mapping: &SlideMapping) -> BTreeMap<u32, String> {
@@ -60,68 +58,6 @@ pub fn expand_degenerate_ylim(low: f64, high: f64) -> (f64, f64) {
     (low - pad, high + pad)
 }
 
-/// Sample-count-aware multi-panel layout (transfection Python parity, 1–12 samples):
-/// 1→1×1, 2→1×2, 3–4→2×2, 5–6→2×3, 7–9→3×3, 10–12→3×4, else near-square.
-pub fn subplot_grid_shape(panel_count: usize) -> (usize, usize) {
-    let n = panel_count.max(1);
-    match n {
-        1 => (1, 1),
-        2 => (1, 2),
-        3 | 4 => (2, 2),
-        5 | 6 => (2, 3),
-        7..=9 => (3, 3),
-        10..=12 => (3, 4),
-        _ => {
-            let cols = (n as f64).sqrt().ceil() as usize;
-            let rows = n.div_ceil(cols);
-            (rows.max(1), cols.max(1))
-        }
-    }
-}
-
-/// Resolve ``(nrows, ncols)``; ``columns = None`` uses [`subplot_grid_shape`].
-pub fn resolve_subplot_grid(panel_count: usize, columns: Option<usize>) -> (usize, usize) {
-    match columns {
-        None => {
-            if panel_count == 0 {
-                (1, 1)
-            } else {
-                subplot_grid_shape(panel_count)
-            }
-        }
-        Some(cols) => {
-            let cols = cols.max(1);
-            if panel_count == 0 {
-                (1, cols)
-            } else {
-                (panel_count.div_ceil(cols).max(1), cols)
-            }
-        }
-    }
-}
-
-/// Explicit column count (kill-curve style fixed grids).
-#[allow(dead_code)]
-pub fn grid_dimensions(count: usize, columns: usize) -> (usize, usize) {
-    resolve_subplot_grid(count, Some(columns))
-}
-
-pub fn subplot_title(csv_path: &Path, trace_count: usize, mapping: &SlideMapping) -> String {
-    let labels = slide_channel_labels(mapping);
-    let label = match resolve_slide_channel(csv_path, mapping) {
-        Ok(channel) => labels
-            .get(&channel)
-            .cloned()
-            .unwrap_or_else(|| format!("slide channel {channel}")),
-        Err(_) => csv_path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("timeseries")
-            .to_string(),
-    };
-    format!("{label} ({trace_count} traces)")
-}
-
 pub fn sample_subplot_title(
     slide_channel: u32,
     trace_count: usize,
@@ -133,28 +69,6 @@ pub fn sample_subplot_title(
         .cloned()
         .unwrap_or_else(|| format!("slide channel {slide_channel}"));
     format!("{label} ({trace_count} traces)")
-}
-
-pub fn trace_naming_haystack(csv_path: &Path, mapping: &SlideMapping) -> String {
-    let labels = slide_channel_labels(mapping);
-    let mut parts = vec![
-        csv_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("")
-            .to_string(),
-        csv_path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("")
-            .to_string(),
-    ];
-    if let Ok(channel) = resolve_slide_channel(csv_path, mapping) {
-        if let Some(label) = labels.get(&channel) {
-            parts.push(label.clone());
-        }
-    }
-    parts.join(" ")
 }
 
 pub fn sample_trace_naming_haystack(
@@ -231,20 +145,6 @@ fn quartile(values: &[f64], q: f64) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn subplot_grid_shape_one_to_twelve() {
-        assert_eq!(subplot_grid_shape(1), (1, 1));
-        assert_eq!(subplot_grid_shape(2), (1, 2));
-        assert_eq!(subplot_grid_shape(3), (2, 2));
-        assert_eq!(subplot_grid_shape(4), (2, 2));
-        assert_eq!(subplot_grid_shape(5), (2, 3));
-        assert_eq!(subplot_grid_shape(6), (2, 3));
-        assert_eq!(subplot_grid_shape(7), (3, 3));
-        assert_eq!(subplot_grid_shape(9), (3, 3));
-        assert_eq!(subplot_grid_shape(10), (3, 4));
-        assert_eq!(subplot_grid_shape(12), (3, 4));
-    }
 
     #[test]
     fn percentile_ylim_uses_p1_p99_with_margins() {

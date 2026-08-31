@@ -92,13 +92,12 @@ def validate_slide_mapping(mapping: SlideMapping) -> SlideMapping:
                 raise ValueError(f"signal channel must be non-negative, got {signal_channel}")
         if entry.mask_channel < 0:
             raise ValueError(f"mask_channel must be non-negative, got {entry.mask_channel}")
-        sample_name = entry.sample_name.strip()
-        if not sample_name:
-            raise ValueError(f"sample_name for slide channel {slide_channel} must be non-empty")
+        # Empty names are allowed for analysis (timeseries/auc/fit). Plot/results
+        # stages reject them via require_named_samples.
         ordered[slide_channel] = SlideChannelMapping(
             positions=sorted(set(entry.positions)),
             signal_channels=list(entry.signal_channels),
             mask_channel=entry.mask_channel,
-            sample_name=sample_name,
+            sample_name=entry.sample_name.strip(),
         )
     return ordered

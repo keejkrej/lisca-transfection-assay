@@ -4,10 +4,12 @@ import numpy as np
 import pandas as pd
 
 from transfection.services.plot_timeseries import (
+    metric_shared_y_output_path,
     percentile_ylim,
     sample_summary_curves,
     summary_output_path,
     write_metric_plots,
+    write_sample_timeseries_plots,
 )
 
 
@@ -22,6 +24,14 @@ def test_percentile_ylim_uses_p1_p99_with_margins() -> None:
 def test_summary_output_path() -> None:
     assert summary_output_path(Path("results/traces.png")).name == "traces_summary.png"
     assert summary_output_path(Path("results/area.png")).name == "area_summary.png"
+
+
+def test_shared_y_output_path() -> None:
+    assert metric_shared_y_output_path(Path("results/traces.png")).name == "traces_shared_y.png"
+    assert (
+        metric_shared_y_output_path(Path("results/traces_summary.png")).name
+        == "traces_summary_shared_y.png"
+    )
 
 
 def test_sample_summary_curves_mean_median_iqr() -> None:
@@ -66,6 +76,8 @@ def test_write_metric_plots_emits_summary_variants(tmp_path: Path) -> None:
         interval=10.0,
         columns=1,
         slide_channel_names={0: "condA"},
+        shared_ylim=(0.0, 10.0),
+        shared_summary_ylim=(0.0, 10.0),
     )
     names = [path.name for path in written]
     assert names == [
@@ -77,3 +89,35 @@ def test_write_metric_plots_emits_summary_variants(tmp_path: Path) -> None:
     for path in written:
         assert path.is_file()
         assert path.stat().st_size > 0
+
+
+def test_write_sample_timeseries_plots_frozen_set(tmp_path: Path) -> None:
+    df = pd.DataFrame(
+        {
+            "roi": [0, 0, 1, 1],
+            "t": [0, 1, 0, 1],
+            "corrected": [1.0, 2.0, 3.0, 4.0],
+            "area": [10.0, 11.0, 12.0, 13.0],
+        }
+    )
+    sample_panels = [(0, [(tmp_path / "Pos1" / "ch0.csv", df)])]
+    output_plot = tmp_path / "results" / "condA" / "traces.png"
+    written = write_sample_timeseries_plots(
+        sample_panels,
+        output_plot,
+        interval=10.0,
+        columns=1,
+        slide_channel_names={0: "condA"},
+        shared_ylim=(0.0, 10.0),
+        shared_summary_ylim=(0.0, 10.0),
+        shared_area_ylim=(0.0, 20.0),
+    )
+    assert [path.name for path in written] == [
+        "traces.png",
+        "traces_shared_y.png",
+        "traces_summary.png",
+        "traces_summary_shared_y.png",
+        "area.png",
+        "area_shared_y.png",
+    ]
+    assert not (output_plot.parent / "area_summary.png").exists()

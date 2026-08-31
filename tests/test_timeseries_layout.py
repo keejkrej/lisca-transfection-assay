@@ -23,6 +23,7 @@ def test_position_timeseries_path() -> None:
     path = default_position_timeseries_csv_path(Path("/workspace"), 7, 2)
     assert path.name == "ch2.csv"
     assert path.parent.name == "Pos7"
+    assert path.parent.parent.name == "analysis"
 
 
 def test_writes_csv_as_each_position_finishes(
@@ -100,7 +101,7 @@ def test_discovers_position_channel_tables(tmp_path: Path) -> None:
 
 
 def test_parse_timeseries_csv_path() -> None:
-    assert parse_timeseries_csv_path(Path("/ws/timeseries/Pos3/ch1.csv")) == (3, 1)
+    assert parse_timeseries_csv_path(Path("/ws/analysis/Pos3/ch1.csv")) == (3, 1)
 
 
 def test_resolve_slide_channel_from_assay_mapping() -> None:
@@ -120,8 +121,8 @@ def test_resolve_slide_channel_from_assay_mapping() -> None:
             ),
         }
     )
-    assert resolve_slide_channel(Path("/ws/timeseries/Pos1/ch1.csv"), mapping) == 0
-    assert resolve_slide_channel(Path("/ws/timeseries/Pos3/ch2.csv"), mapping) == 1
+    assert resolve_slide_channel(Path("/ws/analysis/Pos1/ch1.csv"), mapping) == 0
+    assert resolve_slide_channel(Path("/ws/analysis/Pos3/ch2.csv"), mapping) == 1
 
 
 def test_resolve_slide_channel_missing_mapping_raises() -> None:
@@ -136,7 +137,7 @@ def test_resolve_slide_channel_missing_mapping_raises() -> None:
         }
     )
     with pytest.raises(ValueError, match="No assay mapping entry"):
-        resolve_slide_channel(Path("/ws/timeseries/Pos9/ch1.csv"), mapping)
+        resolve_slide_channel(Path("/ws/analysis/Pos9/ch1.csv"), mapping)
 
 
 def test_build_lookup_rejects_ambiguous_position_signal() -> None:
@@ -171,24 +172,14 @@ def test_auc_infers_pos_from_timeseries_path(tmp_path: Path) -> None:
         }
     ).to_csv(csv_path, index=False)
 
-    mapping = validate_slide_mapping(
-        {
-            4: SlideChannelMapping(
-                positions=[3],
-                signal_channels=[1],
-                mask_channel=0,
-                sample_name="condA",
-            ),
-        }
-    )
-    result = compute_auc_table([csv_path], interval=2.0, mapping=mapping)
-    assert result.loc[0, "slide_channel"] == 4
+    result = compute_auc_table([csv_path], interval=2.0)
     assert result.loc[0, "pos"] == 3
     assert result.loc[0, "roi"] == 0
     assert result.loc[0, "auc"] == 6.0
+    assert "slide_channel" not in result.columns
 
 
-def test_auc_resolves_slide_channel_from_path_and_mapping(tmp_path: Path) -> None:
+def test_auc_is_sample_agnostic(tmp_path: Path) -> None:
     csv_path = tmp_path / "Pos3" / "ch1.csv"
     csv_path.parent.mkdir(parents=True)
     pd.DataFrame(
@@ -200,16 +191,6 @@ def test_auc_resolves_slide_channel_from_path_and_mapping(tmp_path: Path) -> Non
         }
     ).to_csv(csv_path, index=False)
 
-    mapping = validate_slide_mapping(
-        {
-            4: SlideChannelMapping(
-                positions=[3],
-                signal_channels=[1],
-                mask_channel=0,
-                sample_name="condA",
-            ),
-        }
-    )
-    result = compute_auc_table([csv_path], interval=2.0, mapping=mapping)
-    assert result.loc[0, "slide_channel"] == 4
+    result = compute_auc_table([csv_path], interval=2.0)
     assert result.loc[0, "auc"] == 6.0
+    assert "slide_channel" not in result.columns

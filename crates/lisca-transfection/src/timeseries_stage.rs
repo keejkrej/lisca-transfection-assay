@@ -4,12 +4,13 @@ use std::sync::Mutex;
 
 use rayon::prelude::*;
 
-use crate::csv_io::{format_float, write_csv};
-use crate::roi_stack::{position_dir, read_position_index};
+use crate::csv_io::{format_float, write_csv_only};
+use crate::roi_stack::{discover_roi_positions, position_dir, read_position_index};
 use crate::slide::SlideMapping;
 
 use super::metrics::{compute_full_frame_roi_metrics, compute_masked_roi_metrics, MetricRow};
 use super::segment::default_jobs;
+use crate::assay::{analysis_mask_channel, analysis_signal_channels, load_assay_for_workspace};
 
 pub fn run_timeseries(workspace: &Path, mapping: &SlideMapping, jobs: usize) -> Result<(), String> {
     run_timeseries_with_mode(workspace, mapping, jobs, false)
@@ -21,18 +22,35 @@ pub fn run_timeseries_with_mode(
     jobs: usize,
     full_frame: bool,
 ) -> Result<(), String> {
-    let tasks = mapping
-        .iter()
-        .flat_map(|(slide_channel, entry)| {
-            entry.signal.iter().flat_map(move |&signal_channel| {
-                entry
-                    .positions
+    let tasks = if mapping.is_empty() {
+        let assay = load_assay_for_workspace(workspace, None)?;
+        let positions = discover_roi_positions(workspace)?;
+        let signals = analysis_signal_channels(&assay)?;
+        let mask = analysis_mask_channel(&assay)?;
+        let _ = mask;
+        positions
+            .into_iter()
+            .flat_map(|position| {
+                signals
                     .iter()
                     .copied()
-                    .map(move |position| (*slide_channel, signal_channel, position))
+                    .map(move |signal_channel| (0u32, signal_channel, position))
             })
-        })
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+    } else {
+        mapping
+            .iter()
+            .flat_map(|(slide_channel, entry)| {
+                entry.signal.iter().flat_map(move |&signal_channel| {
+                    entry
+                        .positions
+                        .iter()
+                        .copied()
+                        .map(move |position| (*slide_channel, signal_channel, position))
+                })
+            })
+            .collect::<Vec<_>>()
+    };
 
     if tasks.is_empty() {
         return Err("slide mapping defines no valid positions".to_string());
@@ -70,7 +88,7 @@ pub fn run_timeseries_with_mode(
                 };
                 rows.sort_by_key(|row| (row.pos, row.roi, row.t));
                 let output = workspace
-                    .join("timeseries")
+                    .join("analysis")
                     .join(format!("Pos{position}"))
                     .join(format!("ch{signal_channel}.csv"));
                 write_metric_csv(&output, &rows)?;
@@ -116,7 +134,7 @@ fn write_metric_csv(path: &Path, rows: &[MetricRow]) -> Result<(), String> {
             ]
         })
         .collect::<Vec<_>>();
-    write_csv(path, &headers, &csv_rows)
+    write_csv_only(path, &headers, &csv_rows)
 }
 
 fn format_skipped_positions(skipped_positions: &BTreeMap<u32, Vec<u32>>) -> String {
@@ -164,13 +182,28 @@ mod tests {
     }
 
     #[test]
-    fn timeseries_errors_on_empty_mapping() {
+    fn timeseries_without_samples_does_not_require_names() {
         let workspace = test_workspace("empty");
         let _ = std::fs::remove_dir_all(&workspace);
         std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(
+            workspace.join("assay.json"),
+            r#"{
+                "type": "transfection",
+                "analysis": { "channels": { "mask": 0, "signal": [1] } }
+            }"#,
+        )
+        .unwrap();
         let mapping = SlideMapping::new();
         let err = run_timeseries(&workspace, &mapping, 1).unwrap_err();
-        assert!(err.contains("no valid positions"));
+        assert!(
+            err.contains("roi/") || err.contains("No roi"),
+            "expected roi discovery error, got {err}"
+        );
+        assert!(
+            !err.to_lowercase().contains("sample name"),
+            "timeseries must not require samples[].name, got {err}"
+        );
         let _ = std::fs::remove_dir_all(&workspace);
     }
 

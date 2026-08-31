@@ -12,7 +12,11 @@ from transfection.services.plot_auc import (
 )
 
 NAME = "plot-auc"
-HELP = "Plot AUC summaries as one box plot per slide channel (condition labels from assay.json)."
+HELP = (
+    "Read analysis/PosN/auc.csv (never recomputes AUC) and write "
+    "results/<sample>/auc.xlsx plus the cross-sample results/auc.png boxplot. "
+    "Requires samples[].name."
+)
 
 
 @app.command(NAME, help=HELP)
@@ -23,8 +27,8 @@ def plot_auc(
             exists=True,
             file_okay=True,
             dir_okay=True,
-            metavar="AUC_CSV",
-            help="AUC summary CSV, or workspace root containing results/auc.csv.",
+            metavar="WORKSPACE",
+            help="Workspace root containing analysis/PosN/auc.csv.",
         ),
     ],
     output: Annotated[
@@ -33,18 +37,12 @@ def plot_auc(
             "--output",
             "-o",
             help=(
-                "Output PNG path for the linear-scale plot. Default: auc.png beside the AUC CSV. "
-                "Also writes log-scale auc_log.png."
+                "Output PNG path for the cross-sample AUC boxplot. "
+                "Default: results/auc.png."
             ),
         ),
     ] = None,
 ) -> None:
-    path = auc_csv
-    if path.is_dir():
-        candidate = path / "results" / "auc.csv"
-        if not candidate.is_file():
-            raise typer.BadParameter(f"no results/auc.csv under {path}")
-        path = candidate
-    output_plots = run_plot_auc(auc_csv=path, output=output)
-    for message in format_written_auc_plot_messages(output_plots):
+    output_plots = run_plot_auc(auc_csv=auc_csv, output=output)
+    for message in format_written_auc_plot_messages(list(output_plots)):
         typer.echo(message)

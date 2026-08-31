@@ -13,7 +13,9 @@ use csv::ReaderBuilder;
 use lisca_transfection::array::{masked_roi_stats, trapezoidal_integral};
 use lisca_transfection::assay::AssayJsonFile;
 use lisca_transfection::slide::build_slide_mapping;
-use lisca_transfection::{run_auc, run_fit, run_plot_fit, run_timeseries};
+use lisca_transfection::{
+    run_auc, run_fit, run_plot_auc, run_plot_fit, run_plot_timeseries, run_timeseries,
+};
 use tempfile::tempdir;
 
 use support::transfection_fixture::{SyntheticWorkspace, INTERVAL_MINUTES};
@@ -86,7 +88,7 @@ fn timeseries_stage_matches_reference_metrics() {
 
     run_timeseries(&fixture.root, &mapping, 1).expect("timeseries");
 
-    let csv_path = fixture.root.join("timeseries").join("Pos1").join("ch1.csv");
+    let csv_path = fixture.root.join("analysis").join("Pos1").join("ch1.csv");
     assert!(csv_path.is_file(), "expected {}", csv_path.display());
 
     let (_, rows) = read_results_csv(&csv_path);
@@ -120,11 +122,11 @@ fn auc_stage_matches_reference_trapz() {
     run_timeseries(&fixture.root, &mapping, 1).expect("timeseries");
 
     run_auc(&fixture.root, INTERVAL_MINUTES).expect("auc");
-    let csv_path = fixture.root.join("results").join("auc.csv");
+    let csv_path = fixture.root.join("analysis").join("Pos1").join("auc.csv");
     let (_, rows) = read_results_csv(&csv_path);
     assert_eq!(rows.len(), 1);
 
-    let timeseries_path = fixture.root.join("timeseries").join("Pos1").join("ch1.csv");
+    let timeseries_path = fixture.root.join("analysis").join("Pos1").join("ch1.csv");
     let (_, ts_rows) = read_results_csv(&timeseries_path);
     let mut trace_times = Vec::new();
     let mut trace_values = Vec::new();
@@ -136,9 +138,8 @@ fn auc_stage_matches_reference_trapz() {
 
     let actual_auc = parse_f64(&rows[0]["auc"]);
     assert!(approx_eq(actual_auc, expected_auc, AUC_REL_TOL));
-    assert_eq!(rows[0]["pos"], "1");
     assert_eq!(rows[0]["roi"], "1");
-    assert_eq!(rows[0]["slide_channel"], "0");
+    assert!(!rows[0].contains_key("slide_channel"));
 }
 
 #[test]
@@ -150,13 +151,13 @@ fn fit_stage_matches_transfection_reference_fit() {
     run_timeseries(&fixture.root, &mapping, 1).expect("timeseries");
 
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("fit");
-    let csv_path = fixture.root.join("results").join("fit.csv");
+    let csv_path = fixture.root.join("analysis").join("Pos1").join("fit.csv");
     let (_, rows) = read_results_csv(&csv_path);
     assert_eq!(rows.len(), 1);
     let row = &rows[0];
     assert_eq!(row["success"], "true");
 
-    let timeseries_path = fixture.root.join("timeseries").join("Pos1").join("ch1.csv");
+    let timeseries_path = fixture.root.join("analysis").join("Pos1").join("ch1.csv");
     let (_, ts_rows) = read_results_csv(&timeseries_path);
     let mut trace_times = Vec::new();
     let mut trace_values = Vec::new();
@@ -208,19 +209,18 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
 
     let workspace = fixture.root.display().to_string();
     let interval = INTERVAL_MINUTES.to_string();
+    let analysis_pos = fixture.root.join("analysis").join("Pos1");
 
     run_transfection(&transfection_root, "timeseries", &workspace, &[]);
     let python_timeseries =
-        fs::read_to_string(fixture.root.join("timeseries").join("Pos1").join("ch1.csv"))
-            .expect("python timeseries");
-    fs::remove_dir_all(fixture.root.join("timeseries")).ok();
+        fs::read_to_string(analysis_pos.join("ch1.csv")).expect("python timeseries");
+    fs::remove_dir_all(fixture.root.join("analysis")).ok();
 
     let assay = read_assay_json(&fixture.root);
     let mapping = build_slide_mapping(&assay).expect("mapping");
     run_timeseries(&fixture.root, &mapping, 1).expect("rust timeseries");
     let rust_timeseries =
-        fs::read_to_string(fixture.root.join("timeseries").join("Pos1").join("ch1.csv"))
-            .expect("rust timeseries");
+        fs::read_to_string(analysis_pos.join("ch1.csv")).expect("rust timeseries");
     compare_csv_numeric_str(
         &rust_timeseries,
         &python_timeseries,
@@ -234,18 +234,11 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &workspace,
         &[("--interval", &interval)],
     );
-    let python_auc =
-        fs::read_to_string(fixture.root.join("results").join("auc.csv")).expect("python auc");
-    fs::remove_file(fixture.root.join("results").join("auc.csv")).ok();
+    let python_auc = fs::read_to_string(analysis_pos.join("auc.csv")).expect("python auc");
+    fs::remove_file(analysis_pos.join("auc.csv")).ok();
     run_auc(&fixture.root, INTERVAL_MINUTES).expect("rust auc");
-    let rust_auc =
-        fs::read_to_string(fixture.root.join("results").join("auc.csv")).expect("rust auc");
-    compare_csv_numeric_str(
-        &rust_auc,
-        &python_auc,
-        &["slide_channel", "pos", "roi", "auc"],
-        AUC_REL_TOL,
-    );
+    let rust_auc = fs::read_to_string(analysis_pos.join("auc.csv")).expect("rust auc");
+    compare_csv_numeric_str(&rust_auc, &python_auc, &["roi", "auc"], AUC_REL_TOL);
 
     run_transfection(
         &transfection_root,
@@ -253,9 +246,15 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &workspace,
         &[("--interval", &interval), ("--max-onset-minutes", "0")],
     );
-    let python_fit =
-        fs::read_to_string(fixture.root.join("results").join("fit.csv")).expect("python fit");
+    let python_fit = fs::read_to_string(analysis_pos.join("fit.csv")).expect("python fit");
 
+    run_transfection(
+        &transfection_root,
+        "plot-timeseries",
+        &workspace,
+        &[("--interval", &interval)],
+    );
+    run_transfection(&transfection_root, "plot-auc", &workspace, &[]);
     run_transfection(
         &transfection_root,
         "plot-fit",
@@ -263,13 +262,19 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &[("--interval", &interval)],
     );
     assert_nonempty_png(&fit_scatter_png(&fixture.root), "python plot-fit");
-    // Drop Python PNGs so a missing Rust write cannot pass on leftover files.
-    remove_result_pngs(&fixture.root);
+    assert_nonempty_png(
+        &fixture.root.join("results").join("auc.png"),
+        "python plot-auc",
+    );
+    assert_frozen_workspace_tree(&fixture.root, "python");
+    let python_traces_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "traces"));
+    let python_auc_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "auc"));
+    let python_fit_xlsx = dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "fit"));
+    remove_result_outputs(&fixture.root);
 
-    fs::remove_file(fixture.root.join("results").join("fit.csv")).ok();
+    fs::remove_file(analysis_pos.join("fit.csv")).ok();
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("rust fit");
-    let rust_fit =
-        fs::read_to_string(fixture.root.join("results").join("fit.csv")).expect("rust fit");
+    let rust_fit = fs::read_to_string(analysis_pos.join("fit.csv")).expect("rust fit");
     compare_csv_numeric_str(
         &rust_fit,
         &python_fit,
@@ -283,8 +288,42 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         FIT_CLI_REL_TOL,
     );
 
+    run_plot_timeseries(&fixture.root, &mapping, INTERVAL_MINUTES, None)
+        .expect("rust plot-timeseries");
+    run_plot_auc(&fixture.root, &mapping).expect("rust plot-auc");
     run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("rust plot-fit");
     assert_nonempty_png(&fit_scatter_png(&fixture.root), "rust plot-fit");
+    assert_nonempty_png(
+        &fixture.root.join("results").join("auc.png"),
+        "rust plot-auc",
+    );
+    compare_csv_numeric_str(
+        &dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "traces")),
+        &python_traces_xlsx,
+        &["slide_channel", "pos", "roi", "t", "area", "background", "sum", "corrected"],
+        AUC_REL_TOL,
+    );
+    compare_csv_numeric_str(
+        &dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "auc")),
+        &python_auc_xlsx,
+        &["slide_channel", "pos", "roi", "auc"],
+        AUC_REL_TOL,
+    );
+    compare_csv_numeric_str(
+        &dump_xlsx_csv(&transfection_root, &sample_xlsx(&fixture.root, "fit")),
+        &python_fit_xlsx,
+        &[
+            "slide_channel",
+            "pos",
+            "roi",
+            "baseline_intensity",
+            "protein_decay_rate",
+            "onset_time",
+            "expression_rate",
+        ],
+        FIT_CLI_REL_TOL,
+    );
+    assert_frozen_workspace_tree(&fixture.root, "rust");
 }
 
 #[test]
@@ -297,34 +336,176 @@ fn plot_fit_writes_expression_rate_vs_onset_time_png() {
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("fit");
     run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-fit");
 
-    let scatter = fixture
-        .root
-        .join("results")
-        .join("expression_rate_vs_onset_time.png");
+    let scatter = fit_scatter_png(&fixture.root);
     assert!(scatter.is_file(), "expected {}", scatter.display());
     assert!(
         scatter.metadata().expect("scatter metadata").len() > 0,
         "scatter PNG should be non-empty"
     );
+    for name in ["traces_fit.png", "traces_fit_shared_y.png", "fit.xlsx", FIT_SCATTER_PNG] {
+        let path = sample_results_dir(&fixture.root).join(name);
+        assert!(
+            path.is_file(),
+            "expected existing per-sample fit output {}",
+            path.display()
+        );
+    }
+    assert_forbidden_result_files(&fixture.root);
     for name in [
         "onset_time.png",
         "expression_rate.png",
-        "traces_fit.png",
-        "traces_fit_shared_y.png",
+        "baseline_intensity.png",
+        "protein_lifetime.png",
+        "mrna_lifetime.png",
     ] {
         let path = fixture.root.join("results").join(name);
         assert!(
             path.is_file(),
-            "expected existing fit plot {}",
+            "expected cross-sample boxplot {}",
             path.display()
+        );
+        assert!(
+            !sample_results_dir(&fixture.root).join(name).exists(),
+            "must not write {name} under results/<sample>/"
         );
     }
 }
 
 const FIT_SCATTER_PNG: &str = "expression_rate_vs_onset_time.png";
+const SAMPLE_DIRNAME: &str = "condA";
+
+const ANALYSIS_CSVS: &[&str] = &["ch1.csv", "auc.csv", "fit.csv"];
+const SAMPLE_XLSX: &[&str] = &["traces.xlsx", "auc.xlsx", "fit.xlsx"];
+const SAMPLE_PNGS: &[&str] = &[
+    "traces.png",
+    "traces_shared_y.png",
+    "traces_summary.png",
+    "traces_summary_shared_y.png",
+    "area.png",
+    "area_shared_y.png",
+    "traces_fit.png",
+    "traces_fit_shared_y.png",
+    "expression_rate_vs_onset_time.png",
+];
+const ROOT_PNGS: &[&str] = &[
+    "auc.png",
+    "expression_rate.png",
+    "onset_time.png",
+    "baseline_intensity.png",
+    "protein_lifetime.png",
+    "mrna_lifetime.png",
+];
+const FORBIDDEN_NAMES: &[&str] = &[
+    "area_summary.png",
+    "auc_log.png",
+    "expression_rate_log.png",
+    "onset_time_log.png",
+    "baseline_intensity_log.png",
+    "protein_lifetime_log.png",
+    "mrna_lifetime_log.png",
+    "expression_rate_vs_onset_time_shared_y.png",
+    "auc.csv",
+    "fit.csv",
+];
+
+fn assert_frozen_workspace_tree(workspace: &Path, side: &str) {
+    assert!(
+        !workspace.join("timeseries").exists(),
+        "{side}: must not write a timeseries/ folder"
+    );
+    let analysis_pos = workspace.join("analysis").join("Pos1");
+    for name in ANALYSIS_CSVS {
+        let path = analysis_pos.join(name);
+        assert!(
+            path.is_file(),
+            "{side}: expected analysis csv {}",
+            path.display()
+        );
+    }
+    if analysis_pos.is_dir() {
+        for entry in fs::read_dir(&analysis_pos).expect("read analysis/Pos1") {
+            let path = entry.expect("analysis entry").path();
+            let ext = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+            assert_eq!(
+                ext, "csv",
+                "{side}: analysis/PosN must be csv only, found {}",
+                path.display()
+            );
+        }
+    }
+    assert_no_csv_under_results(workspace, side);
+    let sample_dir = sample_results_dir(workspace);
+    for name in SAMPLE_XLSX.iter().chain(SAMPLE_PNGS.iter()) {
+        let path = sample_dir.join(name);
+        assert!(
+            path.is_file(),
+            "{side}: expected per-sample {}",
+            path.display()
+        );
+        if path.extension().and_then(|ext| ext.to_str()) == Some("png") {
+            assert_nonempty_png(&path, side);
+        }
+    }
+    for name in ROOT_PNGS {
+        let path = workspace.join("results").join(name);
+        assert_nonempty_png(&path, side);
+        assert!(
+            !sample_dir.join(name).exists(),
+            "{side}: must not write {name} under results/<sample>/"
+        );
+    }
+    assert_forbidden_result_files(workspace);
+}
+
+fn assert_no_csv_under_results(workspace: &Path, side: &str) {
+    let results = workspace.join("results");
+    let Ok(entries) = fs::read_dir(&results) else {
+        panic!("{side}: missing results/");
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("csv") {
+            panic!("{side}: must not write csv under results/: {}", path.display());
+        }
+        if path.is_dir() {
+            if let Ok(children) = fs::read_dir(&path) {
+                for child in children.flatten() {
+                    let child_path = child.path();
+                    if child_path.extension().and_then(|ext| ext.to_str()) == Some("csv") {
+                        panic!(
+                            "{side}: must not write csv under results/: {}",
+                            child_path.display()
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn assert_forbidden_result_files(workspace: &Path) {
+    for name in FORBIDDEN_NAMES {
+        assert!(
+            !sample_results_dir(workspace).join(name).exists(),
+            "must not write {name} under results/<sample>/"
+        );
+        assert!(
+            !workspace.join("results").join(name).exists(),
+            "must not write results/{name}"
+        );
+    }
+}
+
+fn sample_results_dir(workspace: &Path) -> PathBuf {
+    workspace.join("results").join(SAMPLE_DIRNAME)
+}
+
+fn sample_xlsx(workspace: &Path, kind: &str) -> PathBuf {
+    sample_results_dir(workspace).join(format!("{kind}.xlsx"))
+}
 
 fn fit_scatter_png(workspace: &Path) -> PathBuf {
-    workspace.join("results").join(FIT_SCATTER_PNG)
+    sample_results_dir(workspace).join(FIT_SCATTER_PNG)
 }
 
 fn assert_nonempty_png(path: &Path, side: &str) {
@@ -336,17 +517,56 @@ fn assert_nonempty_png(path: &Path, side: &str) {
     );
 }
 
-fn remove_result_pngs(workspace: &Path) {
+fn remove_result_outputs(workspace: &Path) {
     let results = workspace.join("results");
     let Ok(entries) = fs::read_dir(&results) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) == Some("png") {
+        if path.is_dir() {
+            let Ok(children) = fs::read_dir(&path) else {
+                continue;
+            };
+            for child in children.flatten() {
+                let child_path = child.path();
+                if matches!(
+                    child_path.extension().and_then(|ext| ext.to_str()),
+                    Some("png") | Some("xlsx") | Some("csv")
+                ) {
+                    let _ = fs::remove_file(child_path);
+                }
+            }
+        } else if matches!(
+            path.extension().and_then(|ext| ext.to_str()),
+            Some("png") | Some("xlsx") | Some("csv")
+        ) {
             let _ = fs::remove_file(path);
         }
     }
+}
+
+fn dump_xlsx_csv(repo: &Path, xlsx: &Path) -> String {
+    let uv = find_uv(repo);
+    let output = Command::new(&uv)
+        .current_dir(repo)
+        .arg("run")
+        .arg("python")
+        .arg("-c")
+        .arg(format!(
+            "import pandas as pd; print(pd.read_excel(r'''{}''').to_csv(index=False))",
+            xlsx.display()
+        ))
+        .output()
+        .unwrap_or_else(|error| panic!("dump xlsx via {} failed: {error}", uv.display()));
+    assert!(
+        output.status.success(),
+        "pandas read_excel failed for {}:\nstdout: {}\nstderr: {}",
+        xlsx.display(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("xlsx dump utf-8")
 }
 
 fn transfection_repo_root() -> PathBuf {

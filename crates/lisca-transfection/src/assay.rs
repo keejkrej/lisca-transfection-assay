@@ -31,6 +31,7 @@ pub struct AssayJsonFile {
     pub name: String,
     #[serde(default)]
     pub interval: AssayInterval,
+    #[serde(default)]
     pub samples: AssaySamples,
     #[serde(default)]
     pub analysis: Option<AssayAnalysisConfig>,
@@ -101,13 +102,14 @@ pub struct AssaySampleChannels {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AssaySampleRow {
+    #[serde(default)]
     pub name: String,
     pub positions: String,
     #[serde(rename = "slideChannel")]
     pub slide_channel: u32,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(transparent)]
 pub struct AssaySamples(pub Vec<AssaySampleRow>);
 
@@ -188,6 +190,36 @@ pub fn skip_segment(assay_json: &AssayJsonFile) -> bool {
         .unwrap_or(false)
 }
 
+pub fn analysis_mask_channel(assay_json: &AssayJsonFile) -> Result<u32, String> {
+    assay_json
+        .analysis
+        .as_ref()
+        .and_then(|analysis| analysis.channels.as_ref())
+        .map(|channels| channels.mask)
+        .ok_or_else(|| "missing analysis.channels".to_string())
+}
+
+pub fn analysis_signal_channels(assay_json: &AssayJsonFile) -> Result<Vec<u32>, String> {
+    let analysis = assay_json.analysis.as_ref();
+    let mut signals = analysis
+        .and_then(|config| config.channels.as_ref())
+        .map(|channels| channels.signal.0.clone())
+        .ok_or_else(|| "missing analysis.channels".to_string())?;
+    if let Some(config) = analysis {
+        for row in &config.sample_channels {
+            for channel in row.signal.iter() {
+                if !signals.contains(channel) {
+                    signals.push(*channel);
+                }
+            }
+        }
+    }
+    if signals.is_empty() {
+        return Err("analysis.channels.signal must be a non-empty array".to_string());
+    }
+    Ok(signals)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +254,17 @@ mod tests {
         assert_eq!(assay.type_, "transfection");
         assert_eq!(interval_minutes(&assay).unwrap(), DEFAULT_INTERVAL_MINUTES);
         assert_eq!(max_onset_minutes(&assay), DEFAULT_MAX_ONSET_MINUTES);
+    }
+
+    #[test]
+    fn missing_samples_still_exposes_analysis_channels() {
+        let json = r#"{
+            "type": "transfection",
+            "analysis": { "channels": { "mask": 0, "signal": [1, 2] } }
+        }"#;
+        let assay: AssayJsonFile = serde_json::from_str(json).unwrap();
+        assert!(assay.samples.is_empty());
+        assert_eq!(analysis_mask_channel(&assay).unwrap(), 0);
+        assert_eq!(analysis_signal_channels(&assay).unwrap(), vec![1, 2]);
     }
 }

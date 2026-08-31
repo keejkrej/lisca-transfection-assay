@@ -32,6 +32,7 @@ mod pipeline;
 mod plot;
 mod plot_stages;
 mod roi_stack;
+mod sample_pack;
 mod segment;
 #[cfg(feature = "onnx")]
 mod segment_onnx;
@@ -44,9 +45,9 @@ pub use array::{
     trapezoidal_integral, Frame2D, KineticFitCoeffs, MaskedRoiStats,
 };
 pub use assay::{
-    interval_minutes, load_assay, load_assay_for_workspace, max_onset_minutes, resolve_assay_path,
-    skip_segment, AssayJsonFile, ASSAY_TYPE_TRANSFECTION, DEFAULT_INTERVAL_MINUTES,
-    DEFAULT_MAX_ONSET_MINUTES,
+    analysis_mask_channel, analysis_signal_channels, interval_minutes, load_assay,
+    load_assay_for_workspace, max_onset_minutes, resolve_assay_path, skip_segment, AssayJsonFile,
+    ASSAY_TYPE_TRANSFECTION, DEFAULT_INTERVAL_MINUTES, DEFAULT_MAX_ONSET_MINUTES,
 };
 pub use auc::run_auc;
 pub use fit::{default_fit_jobs, run_fit};
@@ -58,7 +59,8 @@ pub use segment::{
 #[cfg(feature = "onnx")]
 pub use segment_onnx::{OnnxSegmentConfig, OnnxSegmenter};
 pub use slide::{
-    build_slide_mapping, load_mapping_for_workspace, SlideChannelMapping, SlideMapping,
+    build_slide_mapping, load_mapping_for_workspace, named_sample_mapping, require_named_samples,
+    SlideChannelMapping, SlideMapping, MISSING_NAMED_SAMPLES,
 };
 pub use timeseries::{parse_timeseries_path, resolve_slide_channel};
 pub use timeseries_stage::{default_timeseries_jobs, run_timeseries, run_timeseries_with_mode};

@@ -5,16 +5,15 @@ from typing import Annotated
 
 import typer
 
-from transfection import core as paths
 from transfection.app import app
 from transfection.core import load_assay_for_workspace, require_interval_minutes
 from transfection.services.fit import format_written_fit_csv_message, run_fit
 
 NAME = "fit"
 HELP = (
-    "Fit timeseries metrics to the two-exponential transfection kinetic model and write "
-    f"<workspace>/{paths.RESULTS_DIRNAME}/fit.csv and fit.xlsx. "
-    "Interval and max onset default from assay.json when flags are omitted."
+    "Fit analysis traces to the two-exponential kinetic model and write "
+    "analysis/PosN/fit.csv (CSV only). Does not require samples[].name; "
+    "plot-fit concatenates into results/<sample>/fit.xlsx."
 )
 
 
@@ -27,7 +26,7 @@ def fit(
             file_okay=False,
             dir_okay=True,
             metavar="WORKSPACE",
-            help=f"Workspace with {paths.TIMESERIES_DIRNAME}/ and assay.json.",
+            help="Workspace with analysis/ and assay.json.",
         ),
     ],
     interval: Annotated[
@@ -66,9 +65,9 @@ def fit(
     resolved_onset = (
         config.max_onset_minutes if max_onset_minutes is None else max_onset_minutes
     )
-    resolved_output_csv = run_fit(
+    written = run_fit(
         workspace=workspace,
         interval=resolved_interval,
         max_onset_minutes=resolved_onset,
     )
-    typer.echo(format_written_fit_csv_message(resolved_output_csv))
+    typer.echo(format_written_fit_csv_message(written))

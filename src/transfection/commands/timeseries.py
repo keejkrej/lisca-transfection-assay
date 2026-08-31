@@ -16,7 +16,8 @@ from transfection.services.timeseries import (
 NAME = "timeseries"
 HELP = (
     "Read roi/PosN stacks, compute intensity metrics per position, "
-    "and write timeseries/PosN/chC.csv (+ .xlsx) under the workspace. "
+    "and write analysis/PosN/chC.csv (CSV only). Sample names are not required; "
+    "plot-timeseries groups into results/<sample>/ later. "
     "Uses assay.json analysis.skipSegment to choose masked vs full-ROI metrics."
 )
 

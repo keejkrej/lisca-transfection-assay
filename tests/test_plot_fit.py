@@ -38,9 +38,8 @@ def test_pearson_annotation_includes_r_and_n() -> None:
 
 
 def test_default_scatter_plot_path() -> None:
-    assert (
-        default_scatter_plot_path(Path("results/fit.csv"), None).name
-        == "expression_rate_vs_onset_time.png"
+    assert default_scatter_plot_path(Path("results/condA/fit.xlsx"), None) == Path(
+        "results/condA/expression_rate_vs_onset_time.png"
     )
 
 
@@ -60,19 +59,19 @@ def test_successful_finite_fit_df_drops_failed_and_nonfinite() -> None:
 def test_write_expression_rate_vs_onset_scatter_creates_png(tmp_path: Path) -> None:
     df = pd.DataFrame(
         {
-            "slide_channel": [0, 0, 1, 1, 1],
-            "pos": [1, 1, 2, 2, 2],
-            "roi": [1, 2, 1, 2, 3],
-            "success": [True, True, True, False, True],
-            "onset_time": [10.0, 20.0, 30.0, 40.0, 50.0],
-            "expression_rate": [1.0, 2.0, 4.0, 99.0, 5.0],
+            "slide_channel": [0, 0],
+            "pos": [1, 1],
+            "roi": [1, 2],
+            "success": [True, True],
+            "onset_time": [10.0, 20.0],
+            "expression_rate": [1.0, 2.0],
         }
     )
-    output = tmp_path / "results" / "expression_rate_vs_onset_time.png"
+    output = tmp_path / "results" / "condA" / "expression_rate_vs_onset_time.png"
     write_expression_rate_vs_onset_scatter(
         df,
         output,
-        slide_channel_names={0: "condA", 1: "condB"},
+        slide_channel_names={0: "condA"},
     )
     assert output.is_file()
     assert output.stat().st_size > 0
