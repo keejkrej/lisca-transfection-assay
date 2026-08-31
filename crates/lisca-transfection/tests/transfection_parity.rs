@@ -255,6 +255,17 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
     );
     let python_fit =
         fs::read_to_string(fixture.root.join("results").join("fit.csv")).expect("python fit");
+
+    run_transfection(
+        &transfection_root,
+        "plot-fit",
+        &workspace,
+        &[("--interval", &interval)],
+    );
+    assert_nonempty_png(&fit_scatter_png(&fixture.root), "python plot-fit");
+    // Drop Python PNGs so a missing Rust write cannot pass on leftover files.
+    remove_result_pngs(&fixture.root);
+
     fs::remove_file(fixture.root.join("results").join("fit.csv")).ok();
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("rust fit");
     let rust_fit =
@@ -271,6 +282,9 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         ],
         FIT_CLI_REL_TOL,
     );
+
+    run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("rust plot-fit");
+    assert_nonempty_png(&fit_scatter_png(&fixture.root), "rust plot-fit");
 }
 
 #[test]
@@ -304,6 +318,34 @@ fn plot_fit_writes_expression_rate_vs_onset_time_png() {
             "expected existing fit plot {}",
             path.display()
         );
+    }
+}
+
+const FIT_SCATTER_PNG: &str = "expression_rate_vs_onset_time.png";
+
+fn fit_scatter_png(workspace: &Path) -> PathBuf {
+    workspace.join("results").join(FIT_SCATTER_PNG)
+}
+
+fn assert_nonempty_png(path: &Path, side: &str) {
+    assert!(path.is_file(), "{side} did not write {}", path.display());
+    assert!(
+        path.metadata().expect("png metadata").len() > 0,
+        "{side} wrote an empty PNG at {}",
+        path.display()
+    );
+}
+
+fn remove_result_pngs(workspace: &Path) {
+    let results = workspace.join("results");
+    let Ok(entries) = fs::read_dir(&results) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some("png") {
+            let _ = fs::remove_file(path);
+        }
     }
 }
 

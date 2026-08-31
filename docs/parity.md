@@ -12,6 +12,7 @@ On a tiny synthetic workspace (`roi/` 4×4×4 T, 2 channels, one ROI):
 | Timeseries | `timeseries/Pos1/ch1.csv` | `1e-6` |
 | AUC | `results/auc.csv` | `1e-6` |
 | Kinetic fit | `results/fit.csv` | `2e-2` vs Python CLI (grid-search / `lstsq` backends) |
+| Plot-fit scatter | `results/expression_rate_vs_onset_time.png` | existence only (both CLIs; no pixel diff) |
 
 Plots are not pixel-compared. Crop / ND2 / CZI are out of scope.
 
@@ -42,8 +43,25 @@ cargo test -p lisca-transfection
 ```
 
 `cargo test` shells out to `.uv/uv run transfection` (or `uv` on `PATH`) for
-`python_and_rust_csvs_match_on_synthetic_workspace`. Install Python deps first
-(`install.sh`) so that test can spawn the CLI.
+`python_and_rust_csvs_match_on_synthetic_workspace`. That test compares
+timeseries / AUC / fit CSVs and checks that **both** Python `plot-fit` and
+Rust `run_plot_fit` write `results/expression_rate_vs_onset_time.png`
+(file exists and is non-empty; plots are not pixel-compared). Install Python
+deps first (`install.sh`) so the test can spawn the CLI.
+
+## GitHub Actions
+
+PRs and pushes to `main` run [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+as a required-style gate:
+
+1. System libraries for mplot (`libfontconfig1-dev`, `libfreetype6-dev`, `pkg-config`)
+2. `bash install.sh` — bundled `.uv` + `uv sync` (must precede cargo tests)
+3. `.uv/uv run pytest`
+4. `cargo test -p lisca-transfection` — Rust units plus the Python/Rust
+   synthetic-workspace comparison above
+
+Plotting via mplot needs fontconfig/freetype at compile and run time; the
+workflow installs the `-dev` packages on `ubuntu-latest`.
 
 ## Side-by-side on a real workspace
 

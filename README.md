@@ -71,6 +71,8 @@ cargo test -p lisca-transfection
 
 `cargo test` includes a synthetic-workspace comparison of Python vs Rust
 timeseries / AUC / fit CSVs (needs `uv`, from `.uv/uv` after `install.sh` or
-on `PATH`). Details: **`docs/parity.md`**.
+on `PATH`) and checks that both `plot-fit` implementations write
+`results/expression_rate_vs_onset_time.png`. GitHub Actions runs the same
+commands on PRs and `main`. Details: **`docs/parity.md`**.
 
 Full stage list and `assay.json` schema: `AGENTS.md`.
