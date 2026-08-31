@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use mplot::prelude::{AxesStyle, BoxplotStyle, GridPos, Scale, TickFormat, TickLabelRotation};
+use mplot::prelude::{
+    AxesStyle, BoxplotStyle, Color, GridPos, LegendStyle, LineStyle, Marker, Scale, TextStyle,
+    TickFormat, TickLabelRotation,
+};
 
 use crate::array::{fitted_trace_value, KineticFitCoeffs};
 use crate::csv_io::{column_index, parse_f64, read_csv, slide_channel_column_index};
@@ -78,6 +81,11 @@ pub fn run_plot_fit(
         interval,
         columns,
         mapping,
+    )?;
+    write_expression_rate_vs_onset_scatter(
+        &rows,
+        &results_dir.join("expression_rate_vs_onset_time.png"),
+        &labels,
     )?;
     Ok(())
 }
@@ -200,6 +208,136 @@ fn write_fit_boxplot(
                 axes = axes.y_range(0.0, y_upper);
             }
             p.boxplot(&grouped_values, BoxplotStyle::new()).axes(axes);
+        })
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    save_figure(&figure, output_plot, SAVE_PAD_SINGLE_INCHES)
+}
+
+fn successful_finite_xy(row: &FitPlotRow) -> Option<(f64, f64)> {
+    if !row.success {
+        return None;
+    }
+    let onset = row.onset_time.filter(|value| value.is_finite())?;
+    let rate = row.expression_rate.filter(|value| value.is_finite())?;
+    Some((onset, rate))
+}
+
+fn pearson_r(x: &[f64], y: &[f64]) -> Option<f64> {
+    if x.len() != y.len() || x.len() < 2 {
+        return None;
+    }
+    let n = x.len() as f64;
+    let mean_x = x.iter().sum::<f64>() / n;
+    let mean_y = y.iter().sum::<f64>() / n;
+    let mut num = 0.0;
+    let mut den_x = 0.0;
+    let mut den_y = 0.0;
+    for (xi, yi) in x.iter().zip(y) {
+        let dx = xi - mean_x;
+        let dy = yi - mean_y;
+        num += dx * dy;
+        den_x += dx * dx;
+        den_y += dy * dy;
+    }
+    let den = den_x.sqrt() * den_y.sqrt();
+    if den == 0.0 || !den.is_finite() {
+        return None;
+    }
+    let r = num / den;
+    r.is_finite().then_some(r)
+}
+
+fn pearson_annotation(r: Option<f64>, n: usize) -> String {
+    match r {
+        Some(value) => format!("r = {value:.2}\nn = {n}"),
+        None => format!("n = {n}"),
+    }
+}
+
+fn scatter_marker_style(color: Color, label: Option<&str>) -> LineStyle {
+    let mut style = LineStyle::new()
+        .color(color)
+        .marker(Marker::Circle)
+        .width(1.0)
+        .alpha(0.55);
+    if let Some(label) = label {
+        style = style.label(label);
+    }
+    style
+}
+
+fn write_expression_rate_vs_onset_scatter(
+    rows: &[FitPlotRow],
+    output_plot: &Path,
+    labels: &BTreeMap<u32, String>,
+) -> Result<(), String> {
+    let mut grouped: BTreeMap<u32, (Vec<f64>, Vec<f64>)> = BTreeMap::new();
+    for row in rows {
+        let Some((onset, rate)) = successful_finite_xy(row) else {
+            continue;
+        };
+        let entry = grouped.entry(row.slide_channel).or_default();
+        entry.0.push(onset);
+        entry.1.push(rate);
+    }
+    if grouped.is_empty() {
+        return Err(
+            "No successful finite fits available to plot expression rate vs onset time".to_string(),
+        );
+    }
+
+    let series: Vec<(Vec<f64>, Vec<f64>, String)> = grouped
+        .iter()
+        .map(|(channel, (xs, ys))| {
+            let name = labels
+                .get(channel)
+                .cloned()
+                .unwrap_or_else(|| format!("slide channel {channel}"));
+            (xs.clone(), ys.clone(), name)
+        })
+        .collect();
+    let all_onset: Vec<f64> = series
+        .iter()
+        .flat_map(|(xs, _, _)| xs.iter().copied())
+        .collect();
+    let all_rate: Vec<f64> = series
+        .iter()
+        .flat_map(|(_, ys, _)| ys.iter().copied())
+        .collect();
+    let n = all_onset.len();
+    let annotation = pearson_annotation(pearson_r(&all_onset, &all_rate), n);
+    let (x_low, x_high) = percentile_ylim(&all_onset);
+    let (y_low, y_high) = percentile_ylim(&all_rate);
+    let text_x = x_low + 0.05 * (x_high - x_low);
+    let text_y = y_high - 0.08 * (y_high - y_low);
+    let show_legend = series.len() > 1;
+
+    let figure = figure_builder_single()
+        .panel(GridPos::new(1, 1, 1), move |p| {
+            for (index, (xs, ys, name)) in series.iter().enumerate() {
+                let color = Color::TABLEAU[index % Color::TABLEAU.len()];
+                for (point_index, (x, y)) in xs.iter().zip(ys.iter()).enumerate() {
+                    // mplot has no scatter primitive; one-point marked lines skip the stroke.
+                    let label = if point_index == 0 {
+                        Some(name.as_str())
+                    } else {
+                        None
+                    };
+                    p.line(&[*x], &[*y], scatter_marker_style(color, label));
+                }
+            }
+            p.text(text_x, text_y, annotation, TextStyle::new().fontsize(17.0));
+            let mut axes = AxesStyle::new()
+                .x_label("onset time (min)")
+                .y_label("expression rate")
+                .x_range(x_low, x_high)
+                .y_range(y_low, y_high);
+            if show_legend {
+                axes = axes.legend(LegendStyle::show());
+            }
+            p.axes(axes);
         })
         .build()
         .map_err(|error| error.to_string())?;
@@ -381,5 +519,32 @@ impl FitPlotRow {
             onset_time: self.onset_time.unwrap_or(0.0),
             expression_amplitude: self.expression_amplitude.unwrap_or(0.0),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pearson_r;
+
+    #[test]
+    fn pearson_r_perfect_positive() {
+        let x = [1.0, 2.0, 3.0];
+        let y = [1.0, 2.0, 3.0];
+        let r = pearson_r(&x, &y).expect("r");
+        assert!((r - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn pearson_r_perfect_negative() {
+        let x = [1.0, 2.0, 3.0];
+        let y = [3.0, 2.0, 1.0];
+        let r = pearson_r(&x, &y).expect("r");
+        assert!((r + 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn pearson_r_none_when_degenerate() {
+        assert_eq!(pearson_r(&[1.0], &[2.0]), None);
+        assert_eq!(pearson_r(&[1.0, 1.0], &[2.0, 3.0]), None);
     }
 }

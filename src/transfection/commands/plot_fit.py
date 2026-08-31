@@ -16,7 +16,7 @@ from transfection.services.plot_fit import format_written_fit_plot_messages, run
 
 NAME = "plot-fit"
 HELP = (
-    "Plot fit parameter boxplots and fitted-trace grids. "
+    "Plot fit parameter boxplots, fitted-trace grids, and expression rate vs onset time. "
     "Interval defaults from assay.json when --interval is omitted."
 )
 

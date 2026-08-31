@@ -15,6 +15,14 @@ On a tiny synthetic workspace (`roi/` 4×4×4 T, 2 channels, one ROI):
 
 Plots are not pixel-compared. Crop / ND2 / CZI are out of scope.
 
+Both CLIs should write the same `results/` PNG basenames. Fit plots:
+
+- `baseline_intensity.png`, `protein_lifetime.png`, `mrna_lifetime.png`,
+  `onset_time.png`, `expression_rate.png`, `expression_rate_log.png`
+- `traces_fit.png`, `traces_fit_shared_y.png`
+- `expression_rate_vs_onset_time.png` (Pearson scatter of expression rate vs
+  onset time; successful finite fits only)
+
 CSV contract:
 
 - Timeseries: `roi,t,area,background,sum,corrected` (no `pos` / `slide_channel`;
