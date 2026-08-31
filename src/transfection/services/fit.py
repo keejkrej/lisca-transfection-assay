@@ -15,25 +15,29 @@ from transfection.core import (
     parse_timeseries_csv_path,
 )
 from transfection.core.export import write_csv_only
+from transfection.core.kinetics import LN2, half_life_minutes
 from transfection.core.parallel import worker_count
 from transfection.core.workspace import analysis_position_table_csv
-from transfection.services import auc
 
 
 # Fit CSV columns — Müller et al. 2024 basic model (no maturation).
 #
-#   onset_time           t0  (minutes after acquisition start)
-#   expression_rate      m0·kTL  (initial protein-production slope)
-#   mrna_lifetime        1/δ
-#   protein_lifetime     1/β
-#   expression_amplitude m0·kTL / (δ − β)  (intermediate fit coefficient)
-#   baseline_intensity   additive baseline (not a kinetic rate)
+#   onset_time                 t0  (minutes after acquisition start)
+#   expression_rate            m0·kTL  (initial protein-production slope)
+#   mrna_lifetime              ln(2)/δ  (half-life of delivered mRNA, minutes)
+#   protein_lifetime           ln(2)/β  (half-life of reporter protein, minutes)
+#   protein_degradation_rate   β  (per minute)
+#   mrna_degradation_rate      δ  (per minute)
+#   expression_amplitude       m0·kTL / (δ − β)  (intermediate fit coefficient)
+#   baseline_intensity         additive baseline (not a kinetic rate)
+# Paper Eq. (4): AUC = (ln 2)^2 · m0 k_TL · τ_mRNA · τ_EGFP holds only for these
+# half-lives. Trace-integrated AUC from fluorescence is a separate quantity.
 OUTPUT_COLUMNS = (
     "roi",
     "baseline_intensity",
-    "protein_decay_rate",
+    "protein_degradation_rate",
     "protein_lifetime",
-    "mrna_decay_rate",
+    "mrna_degradation_rate",
     "mrna_lifetime",
     "onset_time",
     "expression_amplitude",
@@ -51,8 +55,8 @@ FIXED_ONSET_TIME = 0.0
 @dataclass(frozen=True)
 class FitResult:
     baseline_intensity: float
-    protein_decay_rate: float
-    mrna_decay_rate: float
+    protein_degradation_rate: float
+    mrna_degradation_rate: float
     onset_time: float
     expression_amplitude: float
 
@@ -105,7 +109,7 @@ def fit_trace(
     trace_df: pd.DataFrame,
     *,
     interval: float,
-    fixed_protein_decay_rate: float | None = None,
+    fixed_protein_degradation_rate: float | None = None,
     max_onset_minutes: float | None = 0.0,
 ) -> FitResult | None:
     sorted_df = trace_df.sort_values("t").reset_index(drop=True)
@@ -122,7 +126,7 @@ def fit_trace(
     return _fit_trace_points(
         times,
         values,
-        fixed_protein_decay_rate=fixed_protein_decay_rate,
+        fixed_protein_degradation_rate=fixed_protein_degradation_rate,
         max_onset_minutes=max_onset_minutes,
     )
 
@@ -131,7 +135,7 @@ def _fit_trace_points(
     times: np.ndarray,
     values: np.ndarray,
     *,
-    fixed_protein_decay_rate: float | None = None,
+    fixed_protein_degradation_rate: float | None = None,
     max_onset_minutes: float | None = 0.0,
 ) -> FitResult | None:
     positive_diffs = np.diff(times)
@@ -144,11 +148,11 @@ def _fit_trace_points(
     min_rate = max(1e-6, 1e-4 / max_time)
     max_rate = max(min_rate * 10.0, 10.0 / min_positive_dt)
 
-    if fixed_protein_decay_rate is not None:
+    if fixed_protein_degradation_rate is not None:
         return _fit_trace_points_with_fixed_protein(
             times,
             values,
-            fixed_protein_decay_rate=fixed_protein_decay_rate,
+            fixed_protein_degradation_rate=fixed_protein_degradation_rate,
             min_rate=min_rate,
             max_rate=max_rate,
             max_onset_minutes=max_onset_minutes,
@@ -171,16 +175,16 @@ def _fit_trace_points(
         stage_best: tuple[float, FitResult] | None = None
         best_indices: tuple[int, int] | None = None
         for protein_index, protein_log in enumerate(protein_logs):
-            protein_decay_rate = math.exp(float(protein_log))
+            protein_degradation_rate = math.exp(float(protein_log))
             for mrna_index, mrna_log in enumerate(mrna_logs):
-                mrna_decay_rate = math.exp(float(mrna_log))
-                if mrna_decay_rate <= protein_decay_rate:
+                mrna_degradation_rate = math.exp(float(mrna_log))
+                if mrna_degradation_rate <= protein_degradation_rate:
                     continue
                 candidate = _evaluate_rate_candidate(
                     times,
                     values,
-                    protein_decay_rate=protein_decay_rate,
-                    mrna_decay_rate=mrna_decay_rate,
+                    protein_degradation_rate=protein_degradation_rate,
+                    mrna_degradation_rate=mrna_degradation_rate,
                 )
                 if candidate is None:
                     continue
@@ -211,15 +215,15 @@ def _fit_trace_points_with_fixed_protein(
     times: np.ndarray,
     values: np.ndarray,
     *,
-    fixed_protein_decay_rate: float,
+    fixed_protein_degradation_rate: float,
     min_rate: float,
     max_rate: float,
     max_onset_minutes: float | None,
 ) -> FitResult | None:
-    if not math.isfinite(fixed_protein_decay_rate) or fixed_protein_decay_rate <= 0:
+    if not math.isfinite(fixed_protein_degradation_rate) or fixed_protein_degradation_rate <= 0:
         return None
 
-    mrna_min_rate = max(min_rate, fixed_protein_decay_rate * 1.001)
+    mrna_min_rate = max(min_rate, fixed_protein_degradation_rate * 1.001)
     if mrna_min_rate >= max_rate:
         return None
 
@@ -244,8 +248,8 @@ def _fit_trace_points_with_fixed_protein(
                 candidate = _evaluate_rate_candidate(
                     times,
                     values,
-                    protein_decay_rate=fixed_protein_decay_rate,
-                    mrna_decay_rate=math.exp(float(mrna_log)),
+                    protein_degradation_rate=fixed_protein_degradation_rate,
+                    mrna_degradation_rate=math.exp(float(mrna_log)),
                     onset_time=t_onset,
                 )
                 if candidate is None:
@@ -279,12 +283,12 @@ def _evaluate_rate_candidate(
     times: np.ndarray,
     values: np.ndarray,
     *,
-    protein_decay_rate: float,
-    mrna_decay_rate: float,
+    protein_degradation_rate: float,
+    mrna_degradation_rate: float,
     onset_time: float = FIXED_ONSET_TIME,
 ) -> tuple[float, FitResult] | None:
     dt = np.maximum(times - onset_time, 0.0)
-    basis = np.exp(-protein_decay_rate * dt) - np.exp(-mrna_decay_rate * dt)
+    basis = np.exp(-protein_degradation_rate * dt) - np.exp(-mrna_degradation_rate * dt)
     basis[times < onset_time] = 0.0
     if not np.isfinite(basis).all():
         return None
@@ -308,8 +312,8 @@ def _evaluate_rate_candidate(
 
     return sse, FitResult(
         baseline_intensity=baseline_intensity,
-        protein_decay_rate=float(protein_decay_rate),
-        mrna_decay_rate=float(mrna_decay_rate),
+        protein_degradation_rate=float(protein_degradation_rate),
+        mrna_degradation_rate=float(mrna_degradation_rate),
         onset_time=float(onset_time),
         expression_amplitude=expression_amplitude,
     )
@@ -327,14 +331,31 @@ def _candidate_onset_indices(times: np.ndarray, *, max_onset_minutes: float | No
     return range(last_candidate_index + 1)
 
 
+def auc_from_fit_half_lives(
+    expression_rate: float,
+    mrna_lifetime: float,
+    protein_lifetime: float,
+) -> float:
+    """Paper Eq. (4): AUC = (ln 2)^2 · m0 k_TL · τ_mRNA · τ_EGFP.
+
+    ``mrna_lifetime`` and ``protein_lifetime`` must be half-lives (ln(2)/rate).
+    This is not the trace-integrated fluorescence AUC written to ``auc.csv``.
+    """
+    return (LN2**2) * expression_rate * mrna_lifetime * protein_lifetime
+
+
 def derive_parameters(result: FitResult) -> dict[str, float]:
-    expression_rate = result.expression_amplitude * (result.mrna_decay_rate - result.protein_decay_rate)
+    expression_rate = result.expression_amplitude * (
+        result.mrna_degradation_rate - result.protein_degradation_rate
+    )
+    protein_lifetime = half_life_minutes(result.protein_degradation_rate)
+    mrna_lifetime = half_life_minutes(result.mrna_degradation_rate)
     return {
         "baseline_intensity": result.baseline_intensity,
-        "protein_decay_rate": result.protein_decay_rate,
-        "protein_lifetime": 1.0 / result.protein_decay_rate,
-        "mrna_decay_rate": result.mrna_decay_rate,
-        "mrna_lifetime": 1.0 / result.mrna_decay_rate,
+        "protein_degradation_rate": result.protein_degradation_rate,
+        "protein_lifetime": protein_lifetime,
+        "mrna_degradation_rate": result.mrna_degradation_rate,
+        "mrna_lifetime": mrna_lifetime,
         "onset_time": result.onset_time,
         "expression_amplitude": result.expression_amplitude,
         "expression_rate": expression_rate,
@@ -372,14 +393,14 @@ def compute_fit_table(
     if not tasks:
         raise ValueError("No fit rows produced")
 
-    first_pass_results = _run_fit_tasks(tasks, fixed_protein_decay_rate=None)
-    shared_protein_decay_rate = _pooled_protein_decay_rate(first_pass_results)
-    if shared_protein_decay_rate is None:
+    first_pass_results = _run_fit_tasks(tasks, fixed_protein_degradation_rate=None)
+    shared_protein_degradation_rate = _pooled_protein_degradation_rate(first_pass_results)
+    if shared_protein_degradation_rate is None:
         rows = [_failed_fit_row(group_values) for _pos, _ch, group_values, *_ in tasks]
     else:
         rows = _run_fit_tasks(
             tasks,
-            fixed_protein_decay_rate=shared_protein_decay_rate,
+            fixed_protein_degradation_rate=shared_protein_degradation_rate,
             max_onset_minutes=max_onset_minutes,
         )
 
@@ -391,11 +412,11 @@ def compute_fit_table(
 def _run_fit_tasks(
     tasks: list[tuple[int, int, dict[str, int], list[float], list[float], float]],
     *,
-    fixed_protein_decay_rate: float | None,
+    fixed_protein_degradation_rate: float | None,
     max_onset_minutes: float | None = 0.0,
 ) -> list[dict[str, object]]:
     max_workers = worker_count(len(tasks))
-    payloads = ((task, fixed_protein_decay_rate, max_onset_minutes) for task in tasks)
+    payloads = ((task, fixed_protein_degradation_rate, max_onset_minutes) for task in tasks)
     if max_workers == 1:
         return [_fit_trace_task(payload) for payload in payloads]
 
@@ -403,11 +424,11 @@ def _run_fit_tasks(
         return list(executor.map(_fit_trace_task, payloads))
 
 
-def _pooled_protein_decay_rate(rows: list[dict[str, object]]) -> float | None:
+def _pooled_protein_degradation_rate(rows: list[dict[str, object]]) -> float | None:
     successful_rates = [
-        float(row["protein_decay_rate"])
+        float(row["protein_degradation_rate"])
         for row in rows
-        if bool(row["success"]) and row.get("protein_decay_rate") is not None
+        if bool(row["success"]) and row.get("protein_degradation_rate") is not None
     ]
     if not successful_rates:
         return None
@@ -418,9 +439,9 @@ def _failed_fit_row(group_values: dict[str, int]) -> dict[str, object]:
     return {
         **group_values,
         "baseline_intensity": None,
-        "protein_decay_rate": None,
+        "protein_degradation_rate": None,
         "protein_lifetime": None,
-        "mrna_decay_rate": None,
+        "mrna_degradation_rate": None,
         "mrna_lifetime": None,
         "onset_time": None,
         "expression_amplitude": None,
@@ -436,14 +457,14 @@ def _fit_trace_task(
         float | None,
     ]
 ) -> dict[str, object]:
-    task, fixed_protein_decay_rate, max_onset_minutes = payload
+    task, fixed_protein_degradation_rate, max_onset_minutes = payload
     _position, _channel, group_values, raw_times, raw_values, interval = task
     row: dict[str, object] = dict(group_values)
     trace_df = pd.DataFrame({"t": raw_times, "corrected": raw_values})
     fit_result = fit_trace(
         trace_df,
         interval=interval,
-        fixed_protein_decay_rate=fixed_protein_decay_rate,
+        fixed_protein_degradation_rate=fixed_protein_degradation_rate,
         max_onset_minutes=max_onset_minutes,
     )
     if fit_result is None:

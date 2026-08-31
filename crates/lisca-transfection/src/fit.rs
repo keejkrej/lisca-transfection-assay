@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use ndarray::linspace;
 use rayon::prelude::*;
 
-use crate::array::{evaluate_kinetic_candidate, KineticFitCoeffs};
+use crate::array::{evaluate_kinetic_candidate, half_life_minutes, KineticFitCoeffs};
 use crate::csv_io::write_csv_only;
 
 use super::segment::default_jobs;
@@ -52,7 +52,7 @@ fn run_fit_on_workspace(
     let tasks = build_fit_tasks(&csvs)?;
     let jobs = jobs.max(1);
     let first_pass = run_fit_tasks(&tasks, interval, None, max_onset_minutes, jobs);
-    let pooled = pooled_protein_decay_rate(&first_pass);
+    let pooled = pooled_protein_degradation_rate(&first_pass);
     let rows = if let Some(rate) = pooled {
         run_fit_tasks(&tasks, interval, Some(rate), max_onset_minutes, jobs)
     } else {
@@ -67,12 +67,18 @@ fn run_fit_on_workspace(
 fn run_fit_tasks(
     tasks: &[FitTraceTask],
     interval: f64,
-    fixed_protein_decay_rate: Option<f64>,
+    fixed_protein_degradation_rate: Option<f64>,
     max_onset_minutes: f64,
     jobs: usize,
 ) -> Vec<FitCsvRow> {
-    let fit =
-        |task: &FitTraceTask| fit_task(task, interval, fixed_protein_decay_rate, max_onset_minutes);
+    let fit = |task: &FitTraceTask| {
+        fit_task(
+            task,
+            interval,
+            fixed_protein_degradation_rate,
+            max_onset_minutes,
+        )
+    };
     if jobs == 1 || tasks.len() <= 1 {
         return tasks.iter().map(fit).collect();
     }
@@ -89,12 +95,17 @@ fn run_fit_tasks(
 fn fit_task(
     task: &FitTraceTask,
     interval: f64,
-    fixed_protein_decay_rate: Option<f64>,
+    fixed_protein_degradation_rate: Option<f64>,
     max_onset_minutes: f64,
 ) -> FitCsvRow {
     let times: Vec<f64> = task.times.iter().map(|value| value * interval).collect();
     let values = &task.values;
-    match fit_trace_points(&times, values, fixed_protein_decay_rate, max_onset_minutes) {
+    match fit_trace_points(
+        &times,
+        values,
+        fixed_protein_degradation_rate,
+        max_onset_minutes,
+    ) {
         Some(result) => successful_fit_row(task.pos, task.channel, task.roi, result),
         None => failed_fit_row(task.pos, task.channel, task.roi),
     }
@@ -103,7 +114,7 @@ fn fit_task(
 fn fit_trace_points(
     times: &[f64],
     values: &[f64],
-    fixed_protein_decay_rate: Option<f64>,
+    fixed_protein_degradation_rate: Option<f64>,
     max_onset_minutes: f64,
 ) -> Option<KineticFitCoeffs> {
     if times.len() < 3 || values.len() < 3 {
@@ -143,7 +154,7 @@ fn fit_trace_points(
     let min_rate = (1e-4 / max_time).max(1e-6);
     let max_rate = (min_rate * 10.0).max(10.0 / min_positive_dt);
 
-    if let Some(fixed) = fixed_protein_decay_rate {
+    if let Some(fixed) = fixed_protein_degradation_rate {
         return fit_trace_points_with_fixed_protein(
             times,
             values,
@@ -171,17 +182,17 @@ fn fit_trace_points(
         let mut best_indices: Option<(usize, usize)> = None;
 
         for (protein_index, protein_log) in protein_logs.iter().enumerate() {
-            let protein_decay_rate = protein_log.exp();
+            let protein_degradation_rate = protein_log.exp();
             for (mrna_index, mrna_log) in mrna_logs.iter().enumerate() {
-                let mrna_decay_rate = mrna_log.exp();
-                if mrna_decay_rate <= protein_decay_rate {
+                let mrna_degradation_rate = mrna_log.exp();
+                if mrna_degradation_rate <= protein_degradation_rate {
                     continue;
                 }
                 if let Some((sse, candidate)) = evaluate_kinetic_candidate(
                     times,
                     values,
-                    protein_decay_rate,
-                    mrna_decay_rate,
+                    protein_degradation_rate,
+                    mrna_degradation_rate,
                     0.0,
                 ) {
                     if stage_best
@@ -225,15 +236,15 @@ fn fit_trace_points(
 fn fit_trace_points_with_fixed_protein(
     times: &[f64],
     values: &[f64],
-    fixed_protein_decay_rate: f64,
+    fixed_protein_degradation_rate: f64,
     min_rate: f64,
     max_rate: f64,
     max_onset_minutes: f64,
 ) -> Option<KineticFitCoeffs> {
-    if !fixed_protein_decay_rate.is_finite() || fixed_protein_decay_rate <= 0.0 {
+    if !fixed_protein_degradation_rate.is_finite() || fixed_protein_degradation_rate <= 0.0 {
         return None;
     }
-    let mrna_min_rate = (min_rate).max(fixed_protein_decay_rate * 1.001);
+    let mrna_min_rate = (min_rate).max(fixed_protein_degradation_rate * 1.001);
     if mrna_min_rate >= max_rate {
         return None;
     }
@@ -259,7 +270,7 @@ fn fit_trace_points_with_fixed_protein(
                 if let Some((sse, candidate)) = evaluate_kinetic_candidate(
                     times,
                     values,
-                    fixed_protein_decay_rate,
+                    fixed_protein_degradation_rate,
                     mrna_log.exp(),
                     t_onset,
                 ) {
@@ -331,11 +342,11 @@ fn linspace_values(start: f64, end: f64, count: usize) -> Vec<f64> {
     linspace(start, end, count).collect()
 }
 
-fn pooled_protein_decay_rate(rows: &[FitCsvRow]) -> Option<f64> {
+fn pooled_protein_degradation_rate(rows: &[FitCsvRow]) -> Option<f64> {
     let mut rates = rows
         .iter()
         .filter(|row| row.success)
-        .filter_map(|row| row.protein_decay_rate)
+        .filter_map(|row| row.protein_degradation_rate)
         .collect::<Vec<_>>();
     if rates.is_empty() {
         return None;
@@ -350,9 +361,9 @@ struct FitCsvRow {
     channel: u32,
     roi: i64,
     baseline_intensity: Option<f64>,
-    protein_decay_rate: Option<f64>,
+    protein_degradation_rate: Option<f64>,
     protein_lifetime: Option<f64>,
-    mrna_decay_rate: Option<f64>,
+    mrna_degradation_rate: Option<f64>,
     mrna_lifetime: Option<f64>,
     onset_time: Option<f64>,
     expression_amplitude: Option<f64>,
@@ -360,25 +371,21 @@ struct FitCsvRow {
     success: bool,
 }
 
-fn successful_fit_row(
-    pos: i64,
-    channel: u32,
-    roi: i64,
-    result: KineticFitCoeffs,
-) -> FitCsvRow {
+fn successful_fit_row(pos: i64, channel: u32, roi: i64, result: KineticFitCoeffs) -> FitCsvRow {
     FitCsvRow {
         pos,
         channel,
         roi,
         baseline_intensity: Some(result.baseline_intensity),
-        protein_decay_rate: Some(result.protein_decay_rate),
-        protein_lifetime: Some(1.0 / result.protein_decay_rate),
-        mrna_decay_rate: Some(result.mrna_decay_rate),
-        mrna_lifetime: Some(1.0 / result.mrna_decay_rate),
+        protein_degradation_rate: Some(result.protein_degradation_rate),
+        protein_lifetime: Some(half_life_minutes(result.protein_degradation_rate)),
+        mrna_degradation_rate: Some(result.mrna_degradation_rate),
+        mrna_lifetime: Some(half_life_minutes(result.mrna_degradation_rate)),
         onset_time: Some(result.onset_time),
         expression_amplitude: Some(result.expression_amplitude),
         expression_rate: Some(
-            result.expression_amplitude * (result.mrna_decay_rate - result.protein_decay_rate),
+            result.expression_amplitude
+                * (result.mrna_degradation_rate - result.protein_degradation_rate),
         ),
         success: true,
     }
@@ -390,9 +397,9 @@ fn failed_fit_row(pos: i64, channel: u32, roi: i64) -> FitCsvRow {
         channel,
         roi,
         baseline_intensity: None,
-        protein_decay_rate: None,
+        protein_degradation_rate: None,
         protein_lifetime: None,
-        mrna_decay_rate: None,
+        mrna_degradation_rate: None,
         mrna_lifetime: None,
         onset_time: None,
         expression_amplitude: None,
@@ -438,9 +445,9 @@ fn fit_csv_records(rows: &[&FitCsvRow], include_channel: bool) -> (Vec<String>, 
         [
             "roi",
             "baseline_intensity",
-            "protein_decay_rate",
+            "protein_degradation_rate",
             "protein_lifetime",
-            "mrna_decay_rate",
+            "mrna_degradation_rate",
             "mrna_lifetime",
             "onset_time",
             "expression_amplitude",
@@ -460,9 +467,9 @@ fn fit_csv_records(rows: &[&FitCsvRow], include_channel: bool) -> (Vec<String>, 
             values.extend([
                 row.roi.to_string(),
                 format_optional(row.baseline_intensity),
-                format_optional(row.protein_decay_rate),
+                format_optional(row.protein_degradation_rate),
                 format_optional(row.protein_lifetime),
-                format_optional(row.mrna_decay_rate),
+                format_optional(row.mrna_degradation_rate),
                 format_optional(row.mrna_lifetime),
                 format_optional(row.onset_time),
                 format_optional(row.expression_amplitude),

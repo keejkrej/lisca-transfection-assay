@@ -52,8 +52,8 @@ def _write_plot_workspace(tmp_path: Path) -> Path:
             "roi": [1],
             "success": [True],
             "baseline_intensity": [1.0],
-            "protein_decay_rate": [0.01],
-            "mrna_decay_rate": [0.05],
+            "protein_degradation_rate": [0.01],
+            "mrna_degradation_rate": [0.05],
             "onset_time": [10.0],
             "expression_amplitude": [2.0],
         }

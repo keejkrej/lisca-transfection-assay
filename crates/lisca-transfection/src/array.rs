@@ -193,28 +193,44 @@ pub fn trapezoidal_integral(times: &[f64], values: &[f64]) -> f64 {
 ///
 /// Paper terms: `onset_time` = onset time \(t_0\);
 /// `expression_rate = expression_amplitude * (δ − β)` = \(m_0 k_{TL}\);
-/// `1/δ` = mRNA lifetime; `1/β` = protein lifetime.
+/// `ln(2)/δ` = mRNA lifetime (half-life); `ln(2)/β` = protein lifetime (half-life).
+/// `protein_degradation_rate` = β; `mrna_degradation_rate` = δ (per minute).
 /// `baseline_intensity` is a baseline nuisance, not a kinetic rate.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct KineticFitCoeffs {
     pub baseline_intensity: f64,
-    pub protein_decay_rate: f64,
-    pub mrna_decay_rate: f64,
+    pub protein_degradation_rate: f64,
+    pub mrna_degradation_rate: f64,
     pub onset_time: f64,
     pub expression_amplitude: f64,
 }
 
+/// Paper lifetime: τ = ln(2)/rate (half-life). Stored in minutes when `rate` is per minute.
+pub fn half_life_minutes(degradation_rate_per_minute: f64) -> f64 {
+    std::f64::consts::LN_2 / degradation_rate_per_minute
+}
+
+/// Paper Eq. (4): AUC = (ln 2)^2 · m0 k_TL · τ_mRNA · τ_EGFP.
+/// Lifetimes must be half-lives. This is not the trace-integrated fluorescence AUC.
+pub fn auc_from_fit_half_lives(
+    expression_rate: f64,
+    mrna_lifetime: f64,
+    protein_lifetime: f64,
+) -> f64 {
+    std::f64::consts::LN_2.powi(2) * expression_rate * mrna_lifetime * protein_lifetime
+}
+
 pub fn kinetic_basis_value(
     time: f64,
-    protein_decay_rate: f64,
-    mrna_decay_rate: f64,
+    protein_degradation_rate: f64,
+    mrna_degradation_rate: f64,
     onset_time: f64,
 ) -> f64 {
     if time < onset_time {
         return 0.0;
     }
     let dt = time - onset_time;
-    (-protein_decay_rate * dt).exp() - (-mrna_decay_rate * dt).exp()
+    (-protein_degradation_rate * dt).exp() - (-mrna_degradation_rate * dt).exp()
 }
 
 pub fn fitted_trace_value(time: f64, coeffs: &KineticFitCoeffs) -> f64 {
@@ -222,8 +238,8 @@ pub fn fitted_trace_value(time: f64, coeffs: &KineticFitCoeffs) -> f64 {
         + coeffs.expression_amplitude
             * kinetic_basis_value(
                 time,
-                coeffs.protein_decay_rate,
-                coeffs.mrna_decay_rate,
+                coeffs.protein_degradation_rate,
+                coeffs.mrna_degradation_rate,
                 coeffs.onset_time,
             )
 }
@@ -231,8 +247,8 @@ pub fn fitted_trace_value(time: f64, coeffs: &KineticFitCoeffs) -> f64 {
 pub fn evaluate_kinetic_candidate(
     times: &[f64],
     values: &[f64],
-    protein_decay_rate: f64,
-    mrna_decay_rate: f64,
+    protein_degradation_rate: f64,
+    mrna_degradation_rate: f64,
     onset_time: f64,
 ) -> Option<(f64, KineticFitCoeffs)> {
     if times.len() != values.len() || times.is_empty() {
@@ -240,8 +256,14 @@ pub fn evaluate_kinetic_candidate(
     }
     let times = Array1::from_iter(times.iter().copied());
     let values = Array1::from_iter(values.iter().copied());
-    let basis = times
-        .mapv(|time| kinetic_basis_value(time, protein_decay_rate, mrna_decay_rate, onset_time));
+    let basis = times.mapv(|time| {
+        kinetic_basis_value(
+            time,
+            protein_degradation_rate,
+            mrna_degradation_rate,
+            onset_time,
+        )
+    });
     if !basis.iter().all(|value| value.is_finite()) {
         return None;
     }
@@ -265,8 +287,8 @@ pub fn evaluate_kinetic_candidate(
         sse,
         KineticFitCoeffs {
             baseline_intensity,
-            protein_decay_rate,
-            mrna_decay_rate,
+            protein_degradation_rate,
+            mrna_degradation_rate,
             onset_time,
             expression_amplitude,
         },
@@ -360,5 +382,24 @@ mod tests {
         let (offset, amplitude) = lstsq_affine(&basis, &values).unwrap();
         assert!((offset - 1.0).abs() < 1e-9);
         assert!((amplitude - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn half_life_is_ln2_over_rate_not_reciprocal() {
+        let rate = 0.1;
+        let tau = half_life_minutes(rate);
+        assert!((tau - std::f64::consts::LN_2 / rate).abs() < 1e-12);
+        assert!((tau - 1.0 / rate).abs() > 1.0);
+    }
+
+    #[test]
+    fn auc_from_fit_uses_half_life_eq4() {
+        let expression_rate = 2.0;
+        let mrna_lifetime = 30.0;
+        let protein_lifetime = 120.0;
+        let auc = auc_from_fit_half_lives(expression_rate, mrna_lifetime, protein_lifetime);
+        let expected =
+            std::f64::consts::LN_2.powi(2) * expression_rate * mrna_lifetime * protein_lifetime;
+        assert!((auc - expected).abs() < 1e-12);
     }
 }

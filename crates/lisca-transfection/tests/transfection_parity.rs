@@ -153,7 +153,15 @@ fn fit_stage_matches_transfection_reference_fit() {
 
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("fit");
     let csv_path = fixture.root.join("analysis").join("Pos1").join("fit.csv");
-    let (_, rows) = read_results_csv(&csv_path);
+    let (headers, rows) = read_results_csv(&csv_path);
+    assert!(
+        !headers.iter().any(|name| name.contains("decay_rate")),
+        "fit.csv must not write *_decay_rate columns: {headers:?}"
+    );
+    assert!(headers
+        .iter()
+        .any(|name| name == "protein_degradation_rate"));
+    assert!(headers.iter().any(|name| name == "mrna_degradation_rate"));
     assert_eq!(rows.len(), 1);
     let row = &rows[0];
     assert_eq!(row["success"], "true");
@@ -175,13 +183,13 @@ fn fit_stage_matches_transfection_reference_fit() {
         FIT_REL_TOL
     ));
     assert!(approx_eq(
-        parse_f64(&row["protein_decay_rate"]),
-        reference.protein_decay_rate,
+        parse_f64(&row["protein_degradation_rate"]),
+        reference.protein_degradation_rate,
         FIT_REL_TOL
     ));
     assert!(approx_eq(
-        parse_f64(&row["mrna_decay_rate"]),
-        reference.mrna_decay_rate,
+        parse_f64(&row["mrna_degradation_rate"]),
+        reference.mrna_degradation_rate,
         FIT_REL_TOL
     ));
     assert!(approx_eq(
@@ -192,6 +200,16 @@ fn fit_stage_matches_transfection_reference_fit() {
     assert!(approx_eq(
         parse_f64(&row["onset_time"]),
         reference.onset_time,
+        FIT_REL_TOL
+    ));
+    assert!(approx_eq(
+        parse_f64(&row["protein_lifetime"]),
+        support::transfection_reference::half_life_minutes(reference.protein_degradation_rate),
+        FIT_REL_TOL
+    ));
+    assert!(approx_eq(
+        parse_f64(&row["mrna_lifetime"]),
+        support::transfection_reference::half_life_minutes(reference.mrna_degradation_rate),
         FIT_REL_TOL
     ));
 }
@@ -265,6 +283,10 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
     );
     assert_nonempty_png(&fit_scatter_png(&fixture.root), "python plot-fit");
     assert_nonempty_png(
+        &fit_lifetime_scatter_png(&fixture.root),
+        "python plot-fit lifetime scatter",
+    );
+    assert_nonempty_png(
         &fixture.root.join("results").join("auc.png"),
         "python plot-auc",
     );
@@ -283,10 +305,13 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
         &python_fit,
         &[
             "baseline_intensity",
-            "protein_decay_rate",
-            "mrna_decay_rate",
+            "protein_degradation_rate",
+            "mrna_degradation_rate",
+            "protein_lifetime",
+            "mrna_lifetime",
             "onset_time",
             "expression_amplitude",
+            "expression_rate",
         ],
         FIT_CLI_REL_TOL,
     );
@@ -301,6 +326,10 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
     publish_sample_tables_xlsx(&fixture.root, &named, "fit").expect("fit xlsx");
     run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("rust plot-fit");
     assert_nonempty_png(&fit_scatter_png(&fixture.root), "rust plot-fit");
+    assert_nonempty_png(
+        &fit_lifetime_scatter_png(&fixture.root),
+        "rust plot-fit lifetime scatter",
+    );
     assert_nonempty_png(
         &fixture.root.join("results").join("auc.png"),
         "rust plot-auc",
@@ -334,7 +363,10 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
             "pos",
             "roi",
             "baseline_intensity",
-            "protein_decay_rate",
+            "protein_degradation_rate",
+            "mrna_degradation_rate",
+            "protein_lifetime",
+            "mrna_lifetime",
             "onset_time",
             "expression_rate",
         ],
@@ -759,8 +791,8 @@ fn synthetic_frame(timepoint: u32) -> Vec<f64> {
         let frame_indices: Vec<f64> = (0..4).map(f64::from).collect();
         let kinetic_truth = FitResult {
             baseline_intensity: 10.0,
-            protein_decay_rate: 0.1,
-            mrna_decay_rate: 0.5,
+            protein_degradation_rate: 0.1,
+            mrna_degradation_rate: 0.5,
             onset_time: 0.0,
             expression_amplitude: 100.0,
         };

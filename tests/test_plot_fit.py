@@ -132,8 +132,8 @@ def test_log_joint_figure_uses_log_axes() -> None:
     fig = make_log_joint_figure(
         x,
         y,
-        xlabel="onset time (min)",
-        ylabel="expression rate",
+        xlabel="onset time t0 (h)",
+        ylabel="expression rate m0 k_TL",
         color="gray",
         title="condA",
     )

@@ -110,4 +110,6 @@ results/
 There is no `timeseries/` folder, no combined results tables, and no csv under
 `results/`. Plot stages never recompute analysis. Shared-y ylim is pooled
 across samples. Joint scatters use `onset_time` / `mrna_lifetime` vs
-`expression_rate` (log-log).
+`expression_rate` (log-log). Onset/lifetime PNG axes are hours (stored
+columns stay minutes). `mrna_lifetime` / `protein_lifetime` are half-lives
+\(\ln(2)/\delta\) and \(\ln(2)/\beta\).

@@ -469,8 +469,8 @@ def plot_onset_correlation_panel(
         x_hours[mask],
         y_rate[mask],
         color="#1f77b4",
-        xlabel="onset time (h)",
-        ylabel="expression rate",
+        xlabel="onset time t0 (h)",
+        ylabel="expression rate m0 k_TL",
     )
 
 
@@ -485,8 +485,8 @@ def plot_lifetime_correlation_panel(ax, fit_df: pd.DataFrame) -> None:
         x_hours[mask],
         y_rate[mask],
         color="#d62728",
-        xlabel="mRNA lifetime (h)",
-        ylabel="expression rate",
+        xlabel="mRNA lifetime τ_mRNA (h)",
+        ylabel="expression rate m0 k_TL",
     )
 
 

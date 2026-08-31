@@ -41,8 +41,9 @@ mod timeseries_stage;
 mod traces;
 
 pub use array::{
-    evaluate_kinetic_candidate, fitted_trace_value, full_frame_roi_stats, masked_roi_stats,
-    trapezoidal_integral, Frame2D, KineticFitCoeffs, MaskedRoiStats,
+    auc_from_fit_half_lives, evaluate_kinetic_candidate, fitted_trace_value, full_frame_roi_stats,
+    half_life_minutes, masked_roi_stats, trapezoidal_integral, Frame2D, KineticFitCoeffs,
+    MaskedRoiStats,
 };
 pub use assay::{
     analysis_mask_channel, analysis_signal_channels, interval_minutes, load_assay,
