@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::array::percentile;
 use crate::slide::SlideMapping;
-use crate::timeseries::resolve_slide_channel;
 
 /// Historical CLI default when callers pass an explicit `--columns` (unused).
 pub const DEFAULT_PLOT_COLUMNS: usize = 3;
@@ -59,22 +58,6 @@ pub fn expand_degenerate_ylim(low: f64, high: f64) -> (f64, f64) {
     (low - pad, high + pad)
 }
 
-pub fn subplot_title(csv_path: &Path, trace_count: usize, mapping: &SlideMapping) -> String {
-    let labels = slide_channel_labels(mapping);
-    let label = match resolve_slide_channel(csv_path, mapping) {
-        Ok(channel) => labels
-            .get(&channel)
-            .cloned()
-            .unwrap_or_else(|| format!("slide channel {channel}")),
-        Err(_) => csv_path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("timeseries")
-            .to_string(),
-    };
-    format!("{label} ({trace_count} traces)")
-}
-
 pub fn sample_subplot_title(
     slide_channel: u32,
     trace_count: usize,
@@ -86,28 +69,6 @@ pub fn sample_subplot_title(
         .cloned()
         .unwrap_or_else(|| format!("slide channel {slide_channel}"));
     format!("{label} ({trace_count} traces)")
-}
-
-pub fn trace_naming_haystack(csv_path: &Path, mapping: &SlideMapping) -> String {
-    let labels = slide_channel_labels(mapping);
-    let mut parts = vec![
-        csv_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("")
-            .to_string(),
-        csv_path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("")
-            .to_string(),
-    ];
-    if let Ok(channel) = resolve_slide_channel(csv_path, mapping) {
-        if let Some(label) = labels.get(&channel) {
-            parts.push(label.clone());
-        }
-    }
-    parts.join(" ")
 }
 
 pub fn sample_trace_naming_haystack(
