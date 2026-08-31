@@ -10,6 +10,7 @@ use crate::csv_io::write_csv_only;
 use super::segment::default_jobs;
 use super::traces::{build_fit_tasks, FitTraceTask};
 use crate::timeseries::discover_timeseries_csvs;
+use crate::workspace_layout::{analysis_dir, analysis_pos_dir};
 
 const RATE_COARSE_CANDIDATE_COUNT: usize = 24;
 const RATE_REFINE_CANDIDATE_COUNT: usize = 12;
@@ -48,7 +49,7 @@ fn run_fit_on_workspace(
             "max_onset_minutes must be >= 0, got {max_onset_minutes}"
         ));
     }
-    let csvs = discover_timeseries_csvs(&workspace.join("analysis"))?;
+    let csvs = discover_timeseries_csvs(&analysis_dir(workspace))?;
     let tasks = build_fit_tasks(&csvs)?;
     let jobs = jobs.max(1);
     let first_pass = run_fit_tasks(&tasks, interval, None, max_onset_minutes, jobs);
@@ -416,10 +417,7 @@ fn write_position_fit_tables(workspace: &Path, rows: &[FitCsvRow]) -> Result<Vec
             channels.dedup();
             channels.len() > 1
         };
-        let output = workspace
-            .join("analysis")
-            .join(format!("Pos{pos}"))
-            .join("fit.csv");
+        let output = analysis_pos_dir(workspace, pos as u32).join("fit.csv");
         let (headers, csv_rows) = fit_csv_records(&part, multi);
         let header_refs: Vec<&str> = headers.iter().map(String::as_str).collect();
         write_csv_only(&output, &header_refs, &csv_rows)?;

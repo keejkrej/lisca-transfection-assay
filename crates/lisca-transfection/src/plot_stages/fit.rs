@@ -22,6 +22,7 @@ use crate::slide::{require_named_samples, SlideMapping};
 use crate::timeseries::{
     discover_timeseries_csvs, group_timeseries_rows, parse_timeseries_path, resolve_slide_channel,
 };
+use crate::workspace_layout::{analysis_dir, results_dir};
 
 // Display labels: Müller et al. 2024 basic model (no maturation).
 // CSV column ids match field names (no alternate aliases).
@@ -70,7 +71,7 @@ pub fn run_plot_fit(
     let dirnames = sample_pack_dirnames(&named)?;
     let labels = slide_channel_labels(&named);
     let (headers, grouped) = concat_kind_rows(workspace, &named, "fit")?;
-    let timeseries_csvs = discover_timeseries_csvs(&workspace.join("analysis"))?;
+    let timeseries_csvs = discover_timeseries_csvs(&analysis_dir(workspace))?;
     let mut all_corrected = Vec::new();
     for csv_path in &timeseries_csvs {
         let (headers, data_rows) = read_csv(csv_path)?;
@@ -122,13 +123,13 @@ pub fn run_plot_fit(
         )?;
     }
     if !all_parsed.is_empty() {
-        let results_dir = workspace.join("results");
+        let results_root = results_dir(workspace);
         for (parameter, label, as_hours) in PLOTTED_PARAMETERS {
             write_fit_boxplot(
                 &all_parsed,
                 parameter,
                 label,
-                &results_dir.join(format!("{parameter}.png")),
+                &results_root.join(format!("{parameter}.png")),
                 &labels,
                 false,
                 as_hours,

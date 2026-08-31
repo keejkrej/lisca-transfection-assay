@@ -11,7 +11,10 @@ it; this package does not generate it. CLI and `assay.json` fields:
 **ROI crop is not here.** Crop is shared across assays and stays in the lisca
 monorepo (`lisca-crop`, ND2/CZI readers, bbox → `roi/`). Typical flow:
 **Aligner** (bbox) → crop with **pyama-v2** or **`lisca-crop`** → analysis
-with **this repo**. This package assumes `roi/` already exists.
+with **this repo**. This package assumes `roi/` already exists. Python
+`transfection` imports **lisca base** (no extras) to read `roi/` paths and
+indexes; the Rust crate does not depend on `lisca` (that would cycle). Table
+columns for `analysis/` and `results/` stay in **`docs/schema.md`**.
 
 The lisca product monorepo will depend on **this** git URL for both languages
 (it must not be the other way around — that would cycle):

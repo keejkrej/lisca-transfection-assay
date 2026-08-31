@@ -7,6 +7,7 @@ use rayon::prelude::*;
 use crate::csv_io::{format_float, write_csv_only};
 use crate::roi_stack::{discover_roi_positions, position_dir, read_position_index};
 use crate::slide::SlideMapping;
+use crate::workspace_layout::analysis_pos_dir;
 
 use super::metrics::{compute_full_frame_roi_metrics, compute_masked_roi_metrics, MetricRow};
 use super::segment::default_jobs;
@@ -87,9 +88,7 @@ pub fn run_timeseries_with_mode(
                     compute_masked_roi_metrics(workspace, &pos_dir, &index, signal_channel)?
                 };
                 rows.sort_by_key(|row| (row.pos, row.roi, row.t));
-                let output = workspace
-                    .join("analysis")
-                    .join(format!("Pos{position}"))
+                let output = analysis_pos_dir(workspace, position)
                     .join(format!("ch{signal_channel}.csv"));
                 write_metric_csv(&output, &rows)?;
                 *csvs_written

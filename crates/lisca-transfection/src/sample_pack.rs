@@ -14,6 +14,7 @@ use crate::timeseries::{
     discover_analysis_table_csvs, discover_timeseries_csvs, parse_timeseries_path,
     resolve_slide_channel,
 };
+use crate::workspace_layout::{analysis_dir, results_dir};
 
 pub const TRACE_HEADERS: [&str; 7] = ["pos", "roi", "t", "area", "background", "sum", "corrected"];
 pub const TRACE_HEADERS_WITH_CHANNEL: [&str; 8] = [
@@ -111,7 +112,7 @@ pub fn sample_display_names(mapping: &SlideMapping) -> BTreeMap<u32, String> {
 }
 
 pub fn sample_pack_dir(workspace: &Path, dirname: &str) -> PathBuf {
-    workspace.join("results").join(dirname)
+    results_dir(workspace).join(dirname)
 }
 
 pub fn sample_table_xlsx_path(workspace: &Path, dirname: &str, kind: &str) -> PathBuf {
@@ -123,7 +124,7 @@ pub fn publish_sample_traces_xlsx(
     mapping: &SlideMapping,
 ) -> Result<Vec<PathBuf>, String> {
     let named = require_named_samples(mapping)?;
-    let csvs = discover_timeseries_csvs(&workspace.join("analysis"))?;
+    let csvs = discover_timeseries_csvs(&analysis_dir(workspace))?;
     let dirnames = sample_pack_dirnames(&named)?;
     let mut frames: BTreeMap<u32, Vec<Vec<String>>> = BTreeMap::new();
     let multi_channel = named.values().any(|entry| entry.signal.len() > 1);

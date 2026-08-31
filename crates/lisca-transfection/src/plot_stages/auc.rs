@@ -10,6 +10,7 @@ use crate::plot::{
 };
 use crate::sample_pack::concat_kind_rows;
 use crate::slide::{require_named_samples, SlideMapping};
+use crate::workspace_layout::results_dir;
 
 pub fn run_plot_auc(workspace: &Path, mapping: &SlideMapping) -> Result<(), String> {
     let named = require_named_samples(mapping)?;
@@ -40,7 +41,7 @@ pub fn run_plot_auc(workspace: &Path, mapping: &SlideMapping) -> Result<(), Stri
         .map(|channel| grouped_values_map.get(channel).cloned().unwrap_or_default())
         .collect();
     write_auc_boxplot(
-        &workspace.join("results").join("auc.png"),
+        &results_dir(workspace).join("auc.png"),
         &channels,
         &grouped_values,
         &labels,

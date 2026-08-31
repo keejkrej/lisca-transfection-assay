@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use super::csv_io::{column_index, parse_f64, read_csv, slide_channel_column_index};
 use super::slide::SlideMapping;
+use super::workspace_layout::analysis_dir;
 
 #[derive(Debug, Clone)]
 pub(crate) struct TracePanel {
@@ -81,15 +82,15 @@ pub(crate) fn discover_analysis_table_csvs(
     workspace: &Path,
     kind: &str,
 ) -> Result<Vec<PathBuf>, String> {
-    let analysis_dir = workspace.join("analysis");
-    if !analysis_dir.is_dir() {
+    let analysis_root = analysis_dir(workspace);
+    if !analysis_root.is_dir() {
         return Err(format!(
             "Expected analysis/ directory at {}. Run transfection {kind} first.",
-            analysis_dir.display()
+            analysis_root.display()
         ));
     }
     let mut csvs = Vec::new();
-    for entry in std::fs::read_dir(&analysis_dir).map_err(|error| error.to_string())? {
+    for entry in std::fs::read_dir(&analysis_root).map_err(|error| error.to_string())? {
         let entry = entry.map_err(|error| error.to_string())?;
         let pos_dir = entry.path();
         if !pos_dir.is_dir() {
@@ -104,7 +105,7 @@ pub(crate) fn discover_analysis_table_csvs(
     if csvs.is_empty() {
         return Err(format!(
             "No {kind}.csv files in {}/PosN/. Run transfection {kind} first.",
-            analysis_dir.display()
+            analysis_root.display()
         ));
     }
     Ok(csvs)
