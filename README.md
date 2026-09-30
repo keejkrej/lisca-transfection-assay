@@ -46,16 +46,16 @@ Uses a local `.uv` and `uv sync`.
 .uv/uv run transfection --help
 
 .uv/uv run transfection segment WORKSPACE
-.uv/uv run transfection timeseries WORKSPACE   # analysis/PosN/chC.csv; no sample names required
+.uv/uv run transfection traces WORKSPACE   # analysis/PosN/chC.csv; samples[] not required
 .uv/uv run transfection auc WORKSPACE
 .uv/uv run transfection fit WORKSPACE
-.uv/uv run transfection plot-timeseries WORKSPACE   # results/<sample>/; requires samples[].name
+.uv/uv run transfection plot-traces WORKSPACE   # results/<sample>/; requires samples[]
 .uv/uv run transfection plot-auc WORKSPACE
 .uv/uv run transfection plot-fit WORKSPACE
 .uv/uv run transfection pipeline WORKSPACE
 ```
 
-Typical flow is **analysis stages then plot stages**. Re-run plot after style changes without re-fitting. If `samples[]` is missing, timeseries/auc/fit still write `analysis/`; plot/results fail with a clear error.
+Typical flow is **analysis stages then plot stages**. Re-run plot after style changes without re-fitting. If `samples[]` is missing, traces/auc/fit still write `analysis/`; plot/results fail with a clear error.
 
 ## Run (Rust)
 
@@ -68,7 +68,7 @@ cargo run -p lisca-transfection --release --bin lisca-analyze -- pipeline WORKSP
 ```
 
 The crate’s public API is the same stages, given a workspace path (and
-optional `assay.json`): `run_segment`, `run_timeseries`, `run_auc`,
+optional `assay.json`): `run_segment`, `run_traces`, `run_auc`,
 `run_fit`, `run_pipeline`, and the `run_plot_*` functions.
 
 Otsu is the Python-parity default. Optional **ONNX** fg/bg masks use the
@@ -98,7 +98,7 @@ Full stage list and `assay.json` fields: `AGENTS.md`. Locked table columns:
 ## Workspace layout
 
 ```
-analysis/PosN/{chC.csv,auc.csv,fit.csv}     # csv only; CLI verb still timeseries
+analysis/PosN/{chC.csv,auc.csv,fit.csv}     # csv only; chC.csv are the Traces
 results/
   auc.png expression_rate.png onset_time.png
   baseline_intensity.png protein_lifetime.png mrna_lifetime.png
@@ -112,7 +112,7 @@ results/
     expression_rate_vs_mrna_lifetime.png
 ```
 
-There is no `timeseries/` folder, no combined results tables, and no csv under
+There is no `traces/` folder, no combined results tables, and no csv under
 `results/`. Plot stages never recompute analysis. Shared-y ylim is pooled
 across samples. Joint scatters use `onset_time` / `mrna_lifetime` vs
 `expression_rate` (log-log). Onset/lifetime PNG axes are hours (stored

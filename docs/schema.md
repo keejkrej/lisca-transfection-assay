@@ -31,7 +31,7 @@ channel (`ch{c}.csv`), so they never carry `channel`.
 
 ## `results/<sample>/`
 
-The pack folder is the sample. Do not write `slide_channel` or `sample`.
+The pack folder is the sample. Do not write a `sample` column.
 
 | File | Columns |
 | --- | --- |
