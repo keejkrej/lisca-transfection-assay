@@ -12,16 +12,15 @@ import pandas as pd
 from transfection import core as plot_layout
 from transfection.core import (
     boxplot_tick_labels,
-    boxplot_x_axis_label,
     infer_workspace_root,
     load_assay_for_workspace,
-    require_named_samples,
+    require_samples,
     workspace_results_dir,
 )
 from transfection.core.sample_pack import (
     concat_sample_tables,
 )
-from transfection.services.plot_timeseries import percentile_ylim
+from transfection.services.plot_traces import percentile_ylim
 
 
 def load_auc_frame(df: pd.DataFrame, *, source: Path) -> pd.DataFrame:
@@ -32,9 +31,9 @@ def load_auc_frame(df: pd.DataFrame, *, source: Path) -> pd.DataFrame:
     df = df.dropna(subset=["auc"]).copy()
     if df.empty:
         raise ValueError(f"{source} has no AUC rows")
-    if "slide_channel" in df.columns:
-        df = df.dropna(subset=["slide_channel"])
-        df["slide_channel"] = df["slide_channel"].astype(int)
+    if "sample" in df.columns:
+        df = df.dropna(subset=["sample"])
+        df["sample"] = df["sample"].astype(str)
     df["auc"] = df["auc"].astype(float)
     return df.reset_index(drop=True)
 
@@ -50,26 +49,25 @@ def write_auc_boxplot(
     df: pd.DataFrame,
     output_plot: Path,
     *,
-    slide_channel_names: dict[int, str],
     log_scale: bool,
 ) -> None:
+    """Box per ``sample`` (first-seen order, i.e. assay order when concatenated)."""
     positive_df = df.loc[df["auc"] > 0].copy()
     if positive_df.empty:
         raise ValueError("No positive AUC values available for plotting")
 
-    if "slide_channel" in positive_df.columns:
-        slide_channels = sorted(positive_df["slide_channel"].unique().tolist())
+    if "sample" in positive_df.columns:
+        samples = [str(sample) for sample in pd.unique(positive_df["sample"])]
         grouped_values = [
-            positive_df.loc[positive_df["slide_channel"] == slide_channel, "auc"].to_numpy(dtype=float)
-            for slide_channel in slide_channels
+            positive_df.loc[positive_df["sample"] == sample, "auc"].to_numpy(dtype=float)
+            for sample in samples
         ]
         trace_counts = [int(values.size) for values in grouped_values]
-        tick_labels = boxplot_tick_labels(slide_channels, trace_counts, slide_channel_names)
-        xlabel = boxplot_x_axis_label(slide_channel_names)
+        tick_labels = boxplot_tick_labels(samples, trace_counts)
     else:
         grouped_values = [positive_df["auc"].to_numpy(dtype=float)]
         tick_labels = [f"n={int(grouped_values[0].size)}"]
-        xlabel = "sample"
+    xlabel = "sample"
 
     fig, ax = plt.subplots(figsize=plot_layout.FIGURE_SIZE_SINGLE_IN)
     ax.boxplot(grouped_values, tick_labels=tick_labels)
@@ -103,15 +101,14 @@ def format_written_auc_plot_message(output_plot: Path) -> str:
 def run_plot_auc(*, auc_csv: Path, output: Path | None = None) -> tuple[Path, ...]:
     workspace = infer_workspace_root(auc_csv)
     config = load_assay_for_workspace(workspace)
-    mapping = require_named_samples(config)
+    mapping = require_samples(config)
     tables = concat_sample_tables(workspace, mapping, "auc")
-    names = {sc: entry.sample_name for sc, entry in mapping.items()}
     written: list[Path] = []
     frames = [load_auc_frame(table, source=auc_csv) for table in tables.values()]
     if frames:
         combined = pd.concat(frames, ignore_index=True)
         dest = default_output_plot_path(workspace / "results" / "auc.xlsx", output)
-        write_auc_boxplot(combined, dest, slide_channel_names=names, log_scale=False)
+        write_auc_boxplot(combined, dest, log_scale=False)
         written.append(dest)
     if not written:
         raise ValueError("no AUC panels to plot")

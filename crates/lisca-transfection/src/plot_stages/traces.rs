@@ -2,27 +2,27 @@ use std::path::Path;
 
 use crate::csv_io::{column_index, read_csv};
 use crate::plot::{percentile_ylim, shared_summary_ylim, write_metric_plots};
+use crate::sample::{require_samples, SampleMapping};
 use crate::sample_pack::{sample_pack_dir, sample_pack_dirnames};
-use crate::slide::{require_named_samples, SlideMapping};
-use crate::timeseries::{discover_timeseries_csvs, load_trace_panels_by_sample};
+use crate::traces::{discover_trace_csvs, load_trace_panels_by_sample};
 use crate::workspace_layout::analysis_dir;
 
-pub fn run_plot_timeseries(
+pub fn run_plot_traces(
     workspace: &Path,
-    mapping: &SlideMapping,
+    mapping: &SampleMapping,
     interval: f64,
     columns: Option<usize>,
 ) -> Result<(), String> {
     if interval <= 0.0 {
         return Err(format!("interval must be > 0, got {interval}"));
     }
-    let named = require_named_samples(mapping)?;
+    let named = require_samples(mapping)?;
     let _ = columns;
-    let dirnames = sample_pack_dirnames(&named)?;
-    let csvs = discover_timeseries_csvs(&analysis_dir(workspace))?;
-    let corrected_panels = load_trace_panels_by_sample(&csvs, "corrected", &named)?;
+    let dirnames = sample_pack_dirnames(named)?;
+    let csvs = discover_trace_csvs(&analysis_dir(workspace))?;
+    let corrected_panels = load_trace_panels_by_sample(&csvs, "corrected", named)?;
     if corrected_panels.is_empty() {
-        return Err("no timeseries panels to plot".to_string());
+        return Err("no trace panels to plot".to_string());
     }
     let mut all_corrected = Vec::new();
     for panel in &corrected_panels {
@@ -31,7 +31,7 @@ pub fn run_plot_timeseries(
     let shared_ylim = percentile_ylim(&all_corrected);
     let shared_summary = shared_summary_ylim(&corrected_panels, interval);
     for panel in &corrected_panels {
-        let Some(dirname) = dirnames.get(&panel.slide_channel) else {
+        let Some(dirname) = dirnames.get(&panel.sample) else {
             continue;
         };
         let dest = sample_pack_dir(workspace, dirname).join("traces.png");
@@ -40,7 +40,7 @@ pub fn run_plot_timeseries(
             &dest,
             "intensity",
             interval,
-            &named,
+            named,
             true,
             Some(shared_ylim),
             Some(shared_summary),
@@ -48,14 +48,14 @@ pub fn run_plot_timeseries(
     }
 
     if csvs.iter().all(|path| panel_has_column(path, "area")) {
-        let area_panels = load_trace_panels_by_sample(&csvs, "area", &named)?;
+        let area_panels = load_trace_panels_by_sample(&csvs, "area", named)?;
         let mut all_area = Vec::new();
         for panel in &area_panels {
             all_area.extend_from_slice(&panel.y_values);
         }
         let shared_area = percentile_ylim(&all_area);
         for panel in &area_panels {
-            let Some(dirname) = dirnames.get(&panel.slide_channel) else {
+            let Some(dirname) = dirnames.get(&panel.sample) else {
                 continue;
             };
             let dest = sample_pack_dir(workspace, dirname).join("area.png");
@@ -64,7 +64,7 @@ pub fn run_plot_timeseries(
                 &dest,
                 "mask area",
                 interval,
-                &named,
+                named,
                 false,
                 Some(shared_area),
                 None,

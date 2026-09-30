@@ -10,18 +10,16 @@ use crate::array::{
     degradation_rate_per_minute, expression_amplitude_from_observables, fitted_trace_value,
     half_life_minutes, KineticFitCoeffs,
 };
-use crate::csv_io::{column_index, parse_f64, read_csv, slide_channel_column_index};
+use crate::csv_io::{column_index, parse_f64, read_csv};
 use crate::plot::{
     boxplot_tick_label, boxplot_x_axis_label, companion_plot_path, figure_builder_joint,
-    figure_builder_single, log_joint_limits, percentile_ylim, quartile_axis_upper,
-    sample_subplot_title, sample_trace_naming_haystack, save_figure, slide_channel_labels,
-    trace_color_alpha, trace_line_style, JOINT_HIST_BINS, SAVE_PAD_SINGLE_INCHES,
+    figure_builder_single, log_joint_limits, percentile_ylim, quartile_axis_upper, sample_labels,
+    sample_subplot_title, sample_trace_naming_haystack, save_figure, trace_color_alpha,
+    trace_line_style, JOINT_HIST_BINS, SAVE_PAD_SINGLE_INCHES,
 };
+use crate::sample::{require_samples, SampleMapping};
 use crate::sample_pack::{concat_kind_rows, sample_pack_dir, sample_pack_dirnames};
-use crate::slide::{require_named_samples, SlideMapping};
-use crate::timeseries::{
-    discover_timeseries_csvs, group_timeseries_rows, parse_timeseries_path, resolve_slide_channel,
-};
+use crate::traces::{discover_trace_csvs, group_trace_rows, parse_trace_path, resolve_sample};
 use crate::workspace_layout::{analysis_dir, results_dir};
 
 // Display labels: Müller et al. 2024 basic model (no maturation).
@@ -46,7 +44,8 @@ const PLOTTED_PARAMETERS: [(&str, &str, bool); 5] = [
 
 #[derive(Debug, Clone)]
 struct FitPlotRow {
-    slide_channel: u32,
+    /// Sample index (assay order).
+    sample: usize,
     pos: i64,
     roi: i64,
     success: bool,
@@ -62,20 +61,20 @@ struct FitPlotRow {
 
 pub fn run_plot_fit(
     workspace: &Path,
-    mapping: &SlideMapping,
+    mapping: &SampleMapping,
     interval: f64,
     columns: Option<usize>,
 ) -> Result<(), String> {
     let _ = columns;
-    let named = require_named_samples(mapping)?;
-    let dirnames = sample_pack_dirnames(&named)?;
-    let labels = slide_channel_labels(&named);
-    let (headers, grouped) = concat_kind_rows(workspace, &named, "fit")?;
-    let timeseries_csvs = discover_timeseries_csvs(&analysis_dir(workspace))?;
+    let named = require_samples(mapping)?;
+    let dirnames = sample_pack_dirnames(named)?;
+    let labels = sample_labels(named);
+    let (headers, grouped) = concat_kind_rows(workspace, named, "fit")?;
+    let trace_csvs = discover_trace_csvs(&analysis_dir(workspace))?;
     let mut all_corrected = Vec::new();
-    for csv_path in &timeseries_csvs {
+    for csv_path in &trace_csvs {
         let (headers, data_rows) = read_csv(csv_path)?;
-        let groups = group_timeseries_rows(&headers, &data_rows, "corrected")?;
+        let groups = group_trace_rows(&headers, &data_rows, "corrected")?;
         for (_roi, trace) in groups {
             all_corrected.extend(trace.iter().map(|(_, value)| *value));
         }
@@ -83,16 +82,16 @@ pub fn run_plot_fit(
     let shared_fit_ylim = (!all_corrected.is_empty()).then(|| percentile_ylim(&all_corrected));
     let mut all_parsed: Vec<FitPlotRow> = Vec::new();
 
-    for (channel, rows) in grouped {
-        let Some(dirname) = dirnames.get(&channel) else {
+    for (sample, rows) in grouped {
+        let Some(dirname) = dirnames.get(&sample) else {
             continue;
         };
         let dest_dir = sample_pack_dir(workspace, dirname);
-        let parsed = parse_fit_rows(&headers, &rows)?;
+        let parsed = parse_fit_rows(&headers, &rows, sample)?;
         all_parsed.extend(parsed.iter().cloned());
-        let sample_csvs: Vec<PathBuf> = timeseries_csvs
+        let sample_csvs: Vec<PathBuf> = trace_csvs
             .iter()
-            .filter(|path| resolve_slide_channel(path, &named).ok() == Some(channel))
+            .filter(|path| resolve_sample(path, named).ok() == Some(sample))
             .cloned()
             .collect();
         write_fitted_trace_plots(
@@ -100,7 +99,7 @@ pub fn run_plot_fit(
             &sample_csvs,
             &dest_dir.join("traces_fit.png"),
             interval,
-            &named,
+            named,
             shared_fit_ylim,
         )?;
         write_optional_kinetic_joint_scatter(
@@ -139,15 +138,19 @@ pub fn run_plot_fit(
     Ok(())
 }
 
-fn parse_fit_rows(headers: &[String], rows: &[Vec<String>]) -> Result<Vec<FitPlotRow>, String> {
-    load_fit_from_headers(headers, rows)
+fn parse_fit_rows(
+    headers: &[String],
+    rows: &[Vec<String>],
+    sample: usize,
+) -> Result<Vec<FitPlotRow>, String> {
+    load_fit_from_headers(headers, rows, sample)
 }
 
 fn load_fit_from_headers(
     headers: &[String],
     rows: &[Vec<String>],
+    sample: usize,
 ) -> Result<Vec<FitPlotRow>, String> {
-    let slide_channel_index = slide_channel_column_index(headers);
     let pos_index = column_index(headers, "pos");
     let roi_index = column_index(headers, "roi").ok_or("missing roi")?;
     let success_index = column_index(headers, "success").ok_or("missing success")?;
@@ -158,9 +161,6 @@ fn load_fit_from_headers(
 
     let mut parsed = Vec::new();
     for row in rows {
-        let slide_channel = slide_channel_index
-            .and_then(|index| parse_f64(&row[index]).map(|value| value as u32))
-            .unwrap_or(0);
         let pos = pos_index
             .and_then(|index| parse_f64(&row[index]).map(|value| value as i64))
             .unwrap_or(0);
@@ -195,7 +195,7 @@ fn load_fit_from_headers(
                 _ => None,
             });
         parsed.push(FitPlotRow {
-            slide_channel,
+            sample,
             pos,
             roi,
             success,
@@ -231,11 +231,11 @@ fn write_fit_boxplot(
     parameter: &str,
     ylabel: &str,
     output_plot: &Path,
-    labels: &BTreeMap<u32, String>,
+    labels: &BTreeMap<usize, String>,
     log_scale: bool,
     as_hours: bool,
 ) -> Result<(), String> {
-    let mut grouped: BTreeMap<u32, Vec<f64>> = BTreeMap::new();
+    let mut grouped: BTreeMap<usize, Vec<f64>> = BTreeMap::new();
     for row in rows {
         let Some(mut value) = parameter_value(row, parameter) else {
             continue;
@@ -246,7 +246,7 @@ fn write_fit_boxplot(
         if log_scale && value <= 0.0 {
             continue;
         }
-        grouped.entry(row.slide_channel).or_default().push(value);
+        grouped.entry(row.sample).or_default().push(value);
     }
     if grouped.is_empty() {
         return Err(format!(
@@ -254,19 +254,19 @@ fn write_fit_boxplot(
         ));
     }
 
-    let channels: Vec<u32> = grouped.keys().copied().collect();
-    let grouped_values: Vec<Vec<f64>> = channels
+    let samples: Vec<usize> = grouped.keys().copied().collect();
+    let grouped_values: Vec<Vec<f64>> = samples
         .iter()
-        .map(|channel| grouped.get(channel).cloned().unwrap_or_default())
+        .map(|sample| grouped.get(sample).cloned().unwrap_or_default())
         .collect();
-    let ticks: Vec<i32> = (1..=channels.len()).map(|index| index as i32).collect();
-    let tick_labels: Vec<String> = channels
+    let ticks: Vec<i32> = (1..=samples.len()).map(|index| index as i32).collect();
+    let tick_labels: Vec<String> = samples
         .iter()
         .enumerate()
-        .map(|(index, channel)| boxplot_tick_label(*channel, grouped_values[index].len(), labels))
+        .map(|(index, sample)| boxplot_tick_label(*sample, grouped_values[index].len(), labels))
         .collect();
     let y_upper = quartile_axis_upper(&grouped_values);
-    let x_label = boxplot_x_axis_label(labels).to_string();
+    let x_label = boxplot_x_axis_label().to_string();
     let ylabel = ylabel.to_string();
 
     let figure = figure_builder_single()
@@ -306,10 +306,10 @@ fn collect_positive_scatter_xy(
     rows: &[FitPlotRow],
     x_of: impl Fn(&FitPlotRow) -> Option<f64>,
     y_of: impl Fn(&FitPlotRow) -> Option<f64>,
-) -> (Vec<f64>, Vec<f64>, u32) {
+) -> (Vec<f64>, Vec<f64>, usize) {
     let mut xs = Vec::new();
     let mut ys = Vec::new();
-    let mut slide_channel = rows.first().map(|row| row.slide_channel).unwrap_or(0);
+    let mut sample = rows.first().map(|row| row.sample).unwrap_or(0);
     for row in rows {
         let Some((x, y)) = successful_finite_xy(row, x_of(row), y_of(row)) else {
             continue;
@@ -317,11 +317,11 @@ fn collect_positive_scatter_xy(
         let Some((x, y)) = positive_xy(x, y) else {
             continue;
         };
-        slide_channel = row.slide_channel;
+        sample = row.sample;
         xs.push(x);
         ys.push(y);
     }
-    (xs, ys, slide_channel)
+    (xs, ys, sample)
 }
 
 fn logspace_edges(low: f64, high: f64, n_bins: usize) -> Vec<f64> {
@@ -407,7 +407,7 @@ fn scatter_marker_style(color: Color) -> LineStyle {
 fn write_optional_kinetic_joint_scatter(
     rows: &[FitPlotRow],
     output_plot: &Path,
-    labels: &BTreeMap<u32, String>,
+    labels: &BTreeMap<usize, String>,
     x_of: impl Fn(&FitPlotRow) -> Option<f64>,
     y_of: impl Fn(&FitPlotRow) -> Option<f64>,
     xlabel: &str,
@@ -420,20 +420,20 @@ fn write_optional_kinetic_joint_scatter(
 fn write_kinetic_joint_scatter(
     rows: &[FitPlotRow],
     output_plot: &Path,
-    labels: &BTreeMap<u32, String>,
+    labels: &BTreeMap<usize, String>,
     x_of: impl Fn(&FitPlotRow) -> Option<f64>,
     y_of: impl Fn(&FitPlotRow) -> Option<f64>,
     xlabel: &str,
     ylabel: &str,
 ) -> Result<bool, String> {
-    let (xs, ys, slide_channel) = collect_positive_scatter_xy(rows, x_of, y_of);
+    let (xs, ys, sample) = collect_positive_scatter_xy(rows, x_of, y_of);
     if xs.is_empty() {
         return Ok(false);
     }
     let name = labels
-        .get(&slide_channel)
+        .get(&sample)
         .cloned()
-        .unwrap_or_else(|| format!("slide channel {slide_channel}"));
+        .unwrap_or_else(|| format!("sample {sample}"));
     let (color_name, _alpha) = trace_color_alpha(&name);
     let color = Color::hex(color_name);
     write_log_joint_scatter(xs, ys, output_plot, xlabel, ylabel, name, color)?;
@@ -537,10 +537,10 @@ fn write_log_joint_scatter(
 
 fn write_fitted_trace_plots(
     fit_rows: &[FitPlotRow],
-    timeseries_csvs: &[PathBuf],
+    trace_csvs: &[PathBuf],
     output_plot: &Path,
     interval: f64,
-    mapping: &SlideMapping,
+    mapping: &SampleMapping,
     shared_ylim: Option<(f64, f64)>,
 ) -> Result<(), String> {
     let fit_lookup: BTreeMap<(i64, i64), &FitPlotRow> = fit_rows
@@ -553,16 +553,16 @@ fn write_fitted_trace_plots(
     let mut corrected_values = Vec::new();
     let mut max_t = 0.0f64;
     let mut matched_traces = 0usize;
-    let mut slide_channel = fit_rows.first().map(|row| row.slide_channel).unwrap_or(0);
+    let mut sample = fit_rows.first().map(|row| row.sample).unwrap_or(0);
     let mut paths: Vec<PathBuf> = Vec::new();
 
-    for csv_path in timeseries_csvs {
+    for csv_path in trace_csvs {
         let (headers, data_rows) = read_csv(csv_path)?;
-        if let Ok(channel) = resolve_slide_channel(csv_path, mapping) {
-            slide_channel = channel;
+        if let Ok(index) = resolve_sample(csv_path, mapping) {
+            sample = index;
         }
-        let (position, _channel) = parse_timeseries_path(csv_path)?;
-        let groups = group_timeseries_rows(&headers, &data_rows, "corrected")?;
+        let (position, _channel) = parse_trace_path(csv_path)?;
+        let groups = group_trace_rows(&headers, &data_rows, "corrected")?;
         paths.push(csv_path.clone());
 
         for (roi, mut trace) in groups {
@@ -587,16 +587,12 @@ fn write_fitted_trace_plots(
     }
 
     if matched_traces == 0 {
-        return Err("No successful fit rows matched the inferred timeseries CSVs".to_string());
+        return Err("No successful fit rows matched the inferred trace CSVs".to_string());
     }
 
     let local_ylim = percentile_ylim(&corrected_values);
-    let (color, alpha) = trace_color_alpha(&sample_trace_naming_haystack(
-        slide_channel,
-        &paths,
-        mapping,
-    ));
-    let title = sample_subplot_title(slide_channel, matched_traces, mapping);
+    let (color, alpha) = trace_color_alpha(&sample_trace_naming_haystack(sample, &paths, mapping));
+    let title = sample_subplot_title(sample, matched_traces, mapping);
     save_fitted_trace_figure(
         &series,
         output_plot,

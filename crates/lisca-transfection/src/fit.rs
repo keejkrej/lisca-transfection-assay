@@ -9,7 +9,7 @@ use crate::csv_io::write_csv_only;
 
 use super::segment::default_jobs;
 use super::traces::{build_fit_tasks, FitTraceTask};
-use crate::timeseries::discover_timeseries_csvs;
+use crate::traces::discover_trace_csvs;
 use crate::workspace_layout::{analysis_dir, analysis_pos_dir};
 
 const RATE_COARSE_CANDIDATE_COUNT: usize = 24;
@@ -21,16 +21,6 @@ pub fn run_fit(
     interval: f64,
     max_onset_minutes: f64,
     jobs: usize,
-) -> Result<Vec<PathBuf>, String> {
-    run_fit_on_workspace(workspace, interval, max_onset_minutes, jobs)
-}
-
-pub fn run_fit_with_mapping(
-    workspace: &Path,
-    interval: f64,
-    max_onset_minutes: f64,
-    jobs: usize,
-    _mapping: &crate::slide::SlideMapping,
 ) -> Result<Vec<PathBuf>, String> {
     run_fit_on_workspace(workspace, interval, max_onset_minutes, jobs)
 }
@@ -49,7 +39,7 @@ fn run_fit_on_workspace(
             "max_onset_minutes must be >= 0, got {max_onset_minutes}"
         ));
     }
-    let csvs = discover_timeseries_csvs(&analysis_dir(workspace))?;
+    let csvs = discover_trace_csvs(&analysis_dir(workspace))?;
     let tasks = build_fit_tasks(&csvs)?;
     let jobs = jobs.max(1);
     let first_pass = run_fit_tasks(&tasks, interval, None, max_onset_minutes, jobs);

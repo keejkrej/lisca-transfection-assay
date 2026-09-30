@@ -5,8 +5,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from transfection.core.sample import SampleAnalysis, SampleMapping, validate_sample_mapping
 from transfection.core.sample_pack import (
-    MISSING_NAMED_SAMPLES,
+    MISSING_SAMPLES,
     concat_sample_tables,
     concat_sample_traces,
     filesystem_safe_sample_name,
@@ -15,11 +16,24 @@ from transfection.core.sample_pack import (
     sample_pack_dirnames,
     sample_table_xlsx_path,
 )
-from transfection.core.slide import SlideChannelMapping, validate_slide_mapping
 from transfection.core.workspace import (
     analysis_position_table_csv,
-    default_position_timeseries_csv_path,
+    default_position_trace_csv_path,
 )
+
+
+def _mapping(*rows: tuple[str, list[int]]) -> SampleMapping:
+    return validate_sample_mapping(
+        {
+            name: SampleAnalysis(
+                name=name,
+                positions=positions,
+                signal_channels=[1],
+                segmentation_channel=0,
+            )
+            for name, positions in rows
+        }
+    )
 
 
 def test_filesystem_safe_replaces_separators_and_spaces() -> None:
@@ -28,61 +42,42 @@ def test_filesystem_safe_replaces_separators_and_spaces() -> None:
     assert filesystem_safe_sample_name("...") == "sample"
 
 
-def test_duplicate_sample_names_prefix_slide_channel() -> None:
-    mapping = validate_slide_mapping(
-        {
-            0: SlideChannelMapping(
-                positions=[1],
-                signal_channels=[1],
-                mask_channel=0,
-                sample_name="WT",
-            ),
-            1: SlideChannelMapping(
-                positions=[2],
-                signal_channels=[1],
-                mask_channel=0,
-                sample_name="WT",
-            ),
-        }
-    )
+def test_colliding_dirnames_prefix_assay_index() -> None:
+    mapping = _mapping(("ctrl", [3]), ("WT/a", [1]), ("WT a", [2]))
     dirnames = sample_pack_dirnames(mapping)
-    assert dirnames[0] == "0_WT"
-    assert dirnames[1] == "1_WT"
+    assert dirnames == {"ctrl": "ctrl", "WT/a": "1_WT_a", "WT a": "2_WT_a"}
 
 
-def test_sample_pack_dirnames_require_named_samples() -> None:
-    mapping = validate_slide_mapping(
-        {
-            0: SlideChannelMapping(
-                positions=[1],
-                signal_channels=[1],
-                mask_channel=0,
-                sample_name="",
-            )
-        }
-    )
+def test_sample_pack_dirnames_require_samples() -> None:
     with pytest.raises(ValueError, match="plot/results stages require"):
-        sample_pack_dirnames(mapping)
-    assert "timeseries, auc, and fit do not" in MISSING_NAMED_SAMPLES
+        sample_pack_dirnames({})
+    assert "traces, auc, and fit do not need samples" in MISSING_SAMPLES
+
+
+def test_validate_sample_mapping_preserves_assay_order() -> None:
+    mapping = _mapping(("zeta", [1]), ("alpha", [2]))
+    assert list(mapping) == ["zeta", "alpha"]
+
+
+def test_concat_tables_follow_assay_order(tmp_path: Path) -> None:
+    for position in (1, 2):
+        csv = analysis_position_table_csv(tmp_path, position, "auc")
+        csv.parent.mkdir(parents=True)
+        pd.DataFrame({"roi": [0], "auc": [float(position)]}).to_csv(csv, index=False)
+    mapping = _mapping(("zeta", [2]), ("alpha", [1]))
+    tables = concat_sample_tables(tmp_path, mapping, "auc")
+    assert list(tables) == ["zeta", "alpha"]
+    assert list(tables["zeta"]["auc"]) == [2.0]
 
 
 def test_concat_and_publish_auc_xlsx(tmp_path: Path) -> None:
     analysis_csv = analysis_position_table_csv(tmp_path, 1, "auc")
     analysis_csv.parent.mkdir(parents=True)
     pd.DataFrame({"roi": [0], "auc": [6.0]}).to_csv(analysis_csv, index=False)
-    mapping = validate_slide_mapping(
-        {
-            0: SlideChannelMapping(
-                positions=[1],
-                signal_channels=[1],
-                mask_channel=0,
-                sample_name="condA",
-            )
-        }
-    )
+    mapping = _mapping(("condA", [1]))
     tables = concat_sample_tables(tmp_path, mapping, "auc")
-    assert list(tables[0]["sample"]) == ["condA"]
-    assert list(tables[0]["slide_channel"]) == [0]
+    assert list(tables["condA"]["sample"]) == ["condA"]
+    assert "slide_channel" not in tables["condA"].columns
     written = publish_sample_tables_xlsx(tmp_path, mapping, "auc")
     expected = sample_table_xlsx_path(tmp_path, "condA", "auc")
     assert written == [expected]
@@ -90,7 +85,6 @@ def test_concat_and_publish_auc_xlsx(tmp_path: Path) -> None:
     assert not expected.with_suffix(".csv").exists()
     exported = pd.read_excel(expected)
     assert list(exported.columns) == ["pos", "roi", "auc"]
-    assert "slide_channel" not in exported.columns
     assert "sample" not in exported.columns
     assert list(exported["pos"]) == [1]
     assert list(exported["roi"]) == [0]
@@ -98,7 +92,7 @@ def test_concat_and_publish_auc_xlsx(tmp_path: Path) -> None:
 
 
 def test_publish_traces_xlsx_drops_sample_identity_keeps_qc_columns(tmp_path: Path) -> None:
-    traces_csv = default_position_timeseries_csv_path(tmp_path, 1, 1)
+    traces_csv = default_position_trace_csv_path(tmp_path, 1, 1)
     traces_csv.parent.mkdir(parents=True)
     pd.DataFrame(
         {
@@ -110,18 +104,10 @@ def test_publish_traces_xlsx_drops_sample_identity_keeps_qc_columns(tmp_path: Pa
             "corrected": [4.0],
         }
     ).to_csv(traces_csv, index=False)
-    mapping = validate_slide_mapping(
-        {
-            0: SlideChannelMapping(
-                positions=[1],
-                signal_channels=[1],
-                mask_channel=0,
-                sample_name="condA",
-            )
-        }
-    )
+    mapping = _mapping(("condA", [1]))
     in_memory = concat_sample_traces(tmp_path, mapping)
-    assert list(in_memory[0]["slide_channel"]) == [0]
+    assert list(in_memory["condA"]["sample"]) == ["condA"]
+    assert "slide_channel" not in in_memory["condA"].columns
     written = publish_sample_traces_xlsx(tmp_path, mapping)
     expected = sample_table_xlsx_path(tmp_path, "condA", "traces")
     assert written == [expected]
@@ -135,7 +121,6 @@ def test_publish_traces_xlsx_drops_sample_identity_keeps_qc_columns(tmp_path: Pa
         "sum",
         "corrected",
     ]
-    assert "slide_channel" not in exported.columns
     assert "sample" not in exported.columns
 
 
@@ -153,16 +138,7 @@ def test_publish_fit_xlsx_omits_internal_kinetic_columns(tmp_path: Path) -> None
             "success": ["true"],
         }
     ).to_csv(analysis_csv, index=False)
-    mapping = validate_slide_mapping(
-        {
-            0: SlideChannelMapping(
-                positions=[1],
-                signal_channels=[1],
-                mask_channel=0,
-                sample_name="condA",
-            )
-        }
-    )
+    mapping = _mapping(("condA", [1]))
     written = publish_sample_tables_xlsx(tmp_path, mapping, "fit")
     exported = pd.read_excel(written[0])
     assert list(exported.columns) == [
@@ -176,7 +152,6 @@ def test_publish_fit_xlsx_omits_internal_kinetic_columns(tmp_path: Path) -> None
         "success",
     ]
     for dropped in (
-        "slide_channel",
         "sample",
         "protein_degradation_rate",
         "mrna_degradation_rate",

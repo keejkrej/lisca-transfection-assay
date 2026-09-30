@@ -67,9 +67,7 @@ def test_masked_background_uses_median_not_mean(tmp_path: Path) -> None:
         workspace,
         pos_dir,
         index,
-        slide_channel=0,
         channel=0,
-        mask_channel=0,
     )
     # Background pixels are 1, 2, 100 -> median 2, mean ~34.3
     assert df.loc[0, "background"] == pytest.approx(2.0)
@@ -116,7 +114,5 @@ def test_missing_mask_fails_loudly(tmp_path: Path) -> None:
             workspace,
             pos_dir,
             index,
-            slide_channel=0,
             channel=0,
-            mask_channel=0,
         )

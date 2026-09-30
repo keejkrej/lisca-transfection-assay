@@ -230,7 +230,7 @@ def read_roi_stack(roi_path: Path, expected_shape: tuple[int, ...]) -> np.ndarra
 
 
 def roi_frame_2d(
-    stack: np.ndarray, axis_order: str, *, timepoint: int, channel: int, z_index: int = 0
+    stack: np.ndarray, axis_order: str, *, frame: int, channel: int, z_index: int = 0
 ) -> np.ndarray:
     if len(axis_order) != stack.ndim:
         raise ValueError(f"Axis order {axis_order!r} does not match ROI stack ndim={stack.ndim}")
@@ -238,9 +238,9 @@ def roi_frame_2d(
     slicer: list[int | slice] = []
     for axis, size in zip(axis_order, stack.shape):
         if axis == "T":
-            if timepoint >= size:
-                raise ValueError(f"Time index {timepoint} out of range for axis size {size}")
-            slicer.append(timepoint)
+            if frame >= size:
+                raise ValueError(f"Frame {frame} out of range for axis size {size}")
+            slicer.append(frame)
         elif axis == "C":
             if channel >= size:
                 raise ValueError(f"Channel index {channel} out of range for axis size {size}")

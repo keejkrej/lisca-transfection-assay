@@ -5,17 +5,14 @@ use rayon::prelude::*;
 
 use crate::array::trapezoidal_integral;
 use crate::csv_io::{format_float, write_csv_only};
-use crate::timeseries::{
-    discover_timeseries_csvs, group_timeseries_rows, parse_timeseries_path,
-};
+use crate::traces::{discover_trace_csvs, group_trace_rows, parse_trace_path};
 use crate::workspace_layout::{analysis_dir, analysis_pos_dir};
 
 pub fn run_auc(workspace: &Path, interval: f64) -> Result<Vec<PathBuf>, String> {
     if interval <= 0.0 {
         return Err(format!("interval must be > 0, got {interval}"));
     }
-    let timeseries_dir = analysis_dir(workspace);
-    let csvs = discover_timeseries_csvs(&timeseries_dir)?;
+    let csvs = discover_trace_csvs(&analysis_dir(workspace))?;
     let rows = compute_auc_table(&csvs, interval)?;
     write_position_auc_tables(workspace, &rows)
 }
@@ -40,9 +37,9 @@ struct AucTraceTask {
 fn compute_auc_table(csvs: &[PathBuf], interval: f64) -> Result<Vec<AucRow>, String> {
     let mut tasks = Vec::new();
     for csv_path in csvs {
-        let (position, channel) = parse_timeseries_path(csv_path)?;
+        let (position, channel) = parse_trace_path(csv_path)?;
         let (headers, data_rows) = crate::csv_io::read_csv(csv_path)?;
-        let groups = group_timeseries_rows(&headers, &data_rows, "corrected")?;
+        let groups = group_trace_rows(&headers, &data_rows, "corrected")?;
         for (roi, mut trace) in groups {
             trace.sort_by(|left, right| {
                 left.0

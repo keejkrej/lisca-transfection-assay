@@ -13,17 +13,17 @@ from pathlib import Path
 
 import pandas as pd
 
-from transfection.core.assay import require_named_samples
+from transfection.core.assay import require_samples
 from transfection.core.constants import ANALYSIS_DIRNAME, RESULTS_DIRNAME
 from transfection.core.export import write_xlsx_only
-from transfection.core.metrics import load_timeseries_csv
-from transfection.core.slide import SlideMapping
+from transfection.core.metrics import load_trace_csv
+from transfection.core.sample import SampleMapping
 from transfection.core.workspace import (
     discover_analysis_table_csvs,
-    discover_timeseries_csvs,
+    discover_trace_csvs,
     parse_analysis_position_dir,
-    parse_timeseries_csv_path,
-    resolve_slide_channel,
+    parse_trace_path,
+    resolve_sample,
     workspace_analysis_dir,
     workspace_results_dir,
 )
@@ -31,10 +31,9 @@ from transfection.core.workspace import (
 TRACES_KIND = "traces"
 AUC_KIND = "auc"
 FIT_KIND = "fit"
-# Written XLSX identity is the sample folder. Plots may still attach
-# slide_channel in memory when concatenating.
+# Written XLSX identity is the sample folder. Plots attach ``sample`` in
+# memory when concatenating.
 XLSX_DROP_COLUMNS = (
-    "slide_channel",
     "sample",
     "protein_degradation_rate",
     "mrna_degradation_rate",
@@ -86,10 +85,9 @@ FIT_TABLE_COLUMNS_WITH_CHANNEL = (
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 _WHITESPACE = re.compile(r"\s+")
 
-MISSING_NAMED_SAMPLES = (
-    "plot/results stages require assay.json samples[] with a non-empty name "
-    "to group analysis/ into results/<sample>/. timeseries, auc, and fit do not "
-    "need sample names."
+MISSING_SAMPLES = (
+    "plot/results stages require assay.json samples[] to group analysis/ into "
+    "results/<sample>/. traces, auc, and fit do not need samples."
 )
 
 
@@ -100,35 +98,19 @@ def filesystem_safe_sample_name(name: str) -> str:
     return text or "sample"
 
 
-def sample_pack_dirnames(mapping: SlideMapping) -> dict[int, str]:
-    """Map each named slide channel to a unique filesystem-safe pack directory.
+def sample_pack_dirnames(mapping: SampleMapping) -> dict[str, str]:
+    """Map each Sample name to a unique filesystem-safe pack directory.
 
-    Uses the assay ``sample_name``. When two slide channels sanitize to the same
-    path, prefix with ``slide_channel`` so they stay distinct.
+    When two samples sanitize to the same path, prefix with the 0-based assay
+    index (``{index}_{safe}``) so they stay distinct.
     """
-    named = {
-        slide_channel: entry
-        for slide_channel, entry in mapping.items()
-        if entry.sample_name
-    }
-    if not named:
-        raise ValueError(MISSING_NAMED_SAMPLES)
-    sanitized = {
-        slide_channel: filesystem_safe_sample_name(entry.sample_name)
-        for slide_channel, entry in named.items()
-    }
+    if not mapping:
+        raise ValueError(MISSING_SAMPLES)
+    sanitized = {name: filesystem_safe_sample_name(name) for name in mapping}
     counts = Counter(sanitized.values())
     return {
-        slide_channel: (f"{slide_channel}_{name}" if counts[name] > 1 else name)
-        for slide_channel, name in sanitized.items()
-    }
-
-
-def sample_display_names(mapping: SlideMapping) -> dict[int, str]:
-    return {
-        slide_channel: entry.sample_name
-        for slide_channel, entry in mapping.items()
-        if entry.sample_name
+        name: (f"{index}_{safe}" if counts[safe] > 1 else safe)
+        for index, (name, safe) in enumerate(sanitized.items())
     }
 
 
@@ -140,15 +122,14 @@ def sample_table_xlsx_path(workspace: Path, dirname: str, kind: str) -> Path:
     return sample_pack_dir(workspace, dirname) / f"{kind}.xlsx"
 
 
-def require_plot_mapping(mapping: SlideMapping | None = None, *, config=None) -> SlideMapping:
+def require_plot_mapping(
+    mapping: SampleMapping | None = None, *, config=None
+) -> SampleMapping:
     if config is not None:
-        return require_named_samples(config)
-    if mapping is None:
-        raise ValueError(MISSING_NAMED_SAMPLES)
-    named = {sc: entry for sc, entry in mapping.items() if entry.sample_name}
-    if not named:
-        raise ValueError(MISSING_NAMED_SAMPLES)
-    return named
+        return require_samples(config)
+    if not mapping:
+        raise ValueError(MISSING_SAMPLES)
+    return mapping
 
 
 def _order_columns(df: pd.DataFrame, preferred: tuple[str, ...]) -> pd.DataFrame:
@@ -175,40 +156,39 @@ def _table_columns_for_kind(kind: str, include_channel: bool) -> tuple[str, ...]
     return identity
 
 
-def concat_sample_traces(workspace: Path, mapping: SlideMapping) -> dict[int, pd.DataFrame]:
-    named = require_plot_mapping(mapping)
-    csvs = discover_timeseries_csvs(workspace_analysis_dir(workspace))
-    names = sample_display_names(named)
-    frames: dict[int, list[pd.DataFrame]] = defaultdict(list)
+def concat_sample_traces(workspace: Path, mapping: SampleMapping) -> dict[str, pd.DataFrame]:
+    """Per-Sample Trace tables in assay order, with an in-memory ``sample`` column."""
+    samples = require_plot_mapping(mapping)
+    csvs = discover_trace_csvs(workspace_analysis_dir(workspace))
+    frames: dict[str, list[pd.DataFrame]] = defaultdict(list)
     multi_channel = False
     for csv_path in csvs:
         try:
-            slide_channel = resolve_slide_channel(csv_path, named)
+            sample = resolve_sample(csv_path, samples)
         except ValueError:
             continue
-        position, signal = parse_timeseries_csv_path(csv_path)
-        if signal not in named[slide_channel].signal_channels:
+        position, signal = parse_trace_path(csv_path)
+        if signal not in samples[sample].signal_channels:
             continue
-        df = load_timeseries_csv(csv_path)
+        df = load_trace_csv(csv_path)
         if "pos" not in df.columns:
             df = df.assign(pos=int(position))
-        df = df.assign(
-            slide_channel=int(slide_channel),
-            sample=names[slide_channel],
-            channel=int(signal),
-        )
-        frames[slide_channel].append(df)
-        if len(named[slide_channel].signal_channels) > 1:
+        df = df.assign(sample=sample, channel=int(signal))
+        frames[sample].append(df)
+        if len(samples[sample].signal_channels) > 1:
             multi_channel = True
 
-    out: dict[int, pd.DataFrame] = {}
+    out: dict[str, pd.DataFrame] = {}
     preferred = TRACES_TABLE_COLUMNS_WITH_CHANNEL if multi_channel else TRACES_TABLE_COLUMNS
-    for slide_channel, parts in frames.items():
+    for sample in samples:
+        parts = frames.get(sample)
+        if not parts:
+            continue
         combined = pd.concat(parts, ignore_index=True)
         if not multi_channel and "channel" in combined.columns:
             combined = combined.drop(columns=["channel"])
-        sort_cols = [column for column in ("slide_channel", "pos", "channel", "roi", "t") if column in combined.columns]
-        out[slide_channel] = (
+        sort_cols = [column for column in ("pos", "channel", "roi", "t") if column in combined.columns]
+        out[sample] = (
             _order_columns(combined, preferred)
             .sort_values(sort_cols)
             .reset_index(drop=True)
@@ -216,12 +196,12 @@ def concat_sample_traces(workspace: Path, mapping: SlideMapping) -> dict[int, pd
     return out
 
 
-def publish_sample_traces_xlsx(workspace: Path, mapping: SlideMapping) -> list[Path]:
+def publish_sample_traces_xlsx(workspace: Path, mapping: SampleMapping) -> list[Path]:
     tables = concat_sample_traces(workspace, mapping)
     dirnames = sample_pack_dirnames(mapping)
     written: list[Path] = []
-    for slide_channel, table in tables.items():
-        dirname = dirnames.get(slide_channel)
+    for sample, table in tables.items():
+        dirname = dirnames.get(sample)
         if dirname is None:
             continue
         path = sample_table_xlsx_path(workspace, dirname, TRACES_KIND)
@@ -233,59 +213,55 @@ def publish_sample_traces_xlsx(workspace: Path, mapping: SlideMapping) -> list[P
         write_xlsx_only(_xlsx_export_table(table, preferred), path)
         written.append(path)
     if not written:
-        raise ValueError("No analysis traces matched named samples[]")
+        raise ValueError("No analysis traces matched samples[]")
     return written
 
 
 def concat_sample_tables(
     workspace: Path,
-    mapping: SlideMapping,
+    mapping: SampleMapping,
     kind: str,
-) -> dict[int, pd.DataFrame]:
-    named = require_plot_mapping(mapping)
+) -> dict[str, pd.DataFrame]:
+    """Per-Sample ``kind`` tables in assay order, with an in-memory ``sample`` column."""
+    samples = require_plot_mapping(mapping)
     csvs = discover_analysis_table_csvs(workspace, kind)
-    names = sample_display_names(named)
-    position_to_channel: dict[int, int] = {}
-    for slide_channel, entry in named.items():
+    position_to_sample: dict[int, str] = {}
+    for sample, entry in samples.items():
         for position in entry.positions:
-            if position in position_to_channel and position_to_channel[position] != slide_channel:
+            if position in position_to_sample and position_to_sample[position] != sample:
                 raise ValueError(
-                    f"Position {position} is assigned to more than one named sample"
+                    f"Position {position} is assigned to more than one sample"
                 )
-            position_to_channel[position] = slide_channel
+            position_to_sample[position] = sample
 
-    frames: dict[int, list[pd.DataFrame]] = defaultdict(list)
+    frames: dict[str, list[pd.DataFrame]] = defaultdict(list)
     for csv_path in csvs:
         position = parse_analysis_position_dir(csv_path.parent)
-        slide_channel = position_to_channel.get(position)
-        if slide_channel is None:
+        sample = position_to_sample.get(position)
+        if sample is None:
             continue
         df = pd.read_csv(csv_path)
         if "pos" not in df.columns:
             df = df.assign(pos=int(position))
-        df = df.assign(slide_channel=int(slide_channel), sample=names[slide_channel])
+        df = df.assign(sample=sample)
         if "channel" in df.columns:
-            allowed = set(named[slide_channel].signal_channels)
+            allowed = set(samples[sample].signal_channels)
             df = df.loc[df["channel"].astype(int).isin(allowed)].copy()
-        frames[slide_channel].append(df)
+        frames[sample].append(df)
 
     any_channel = any("channel" in part.columns for parts in frames.values() for part in parts)
-    out: dict[int, pd.DataFrame] = {}
-    preferred_identity = (
-        "slide_channel",
-        "sample",
-        "pos",
-        "channel",
-        "roi",
-    )
-    for slide_channel, parts in frames.items():
+    out: dict[str, pd.DataFrame] = {}
+    for sample in samples:
+        parts = frames.get(sample)
+        if not parts:
+            continue
         combined = pd.concat(parts, ignore_index=True)
         if not any_channel and "channel" in combined.columns:
             combined = combined.drop(columns=["channel"])
-        sort_cols = [column for column in preferred_identity if column in combined.columns]
+        sort_cols = [column for column in ("pos", "channel", "roi") if column in combined.columns]
         table_preferred = _table_columns_for_kind(kind, any_channel)
-        in_memory_preferred = ("slide_channel", "sample", *table_preferred)
-        out[slide_channel] = (
+        in_memory_preferred = ("sample", *table_preferred)
+        out[sample] = (
             _order_columns(combined, in_memory_preferred)
             .sort_values(sort_cols)
             .reset_index(drop=True)
@@ -295,14 +271,14 @@ def concat_sample_tables(
 
 def publish_sample_tables_xlsx(
     workspace: Path,
-    mapping: SlideMapping,
+    mapping: SampleMapping,
     kind: str,
 ) -> list[Path]:
     tables = concat_sample_tables(workspace, mapping, kind)
     dirnames = sample_pack_dirnames(mapping)
     written: list[Path] = []
-    for slide_channel, table in tables.items():
-        dirname = dirnames.get(slide_channel)
+    for sample, table in tables.items():
+        dirname = dirnames.get(sample)
         if dirname is None:
             continue
         path = sample_table_xlsx_path(workspace, dirname, kind)
@@ -310,7 +286,7 @@ def publish_sample_tables_xlsx(
         write_xlsx_only(_xlsx_export_table(table, preferred), path)
         written.append(path)
     if not written:
-        raise ValueError(f"No analysis {kind} rows matched named samples[]")
+        raise ValueError(f"No analysis {kind} rows matched samples[]")
     return written
 
 
@@ -352,14 +328,3 @@ def resolve_plot_workspace(path: Path) -> Path:
     if resolved.parent.name == RESULTS_DIRNAME:
         return resolved.parent.parent
     return resolved
-
-
-def labels_from_sample_column(df: pd.DataFrame) -> dict[int, str]:
-    if "slide_channel" not in df.columns or "sample" not in df.columns:
-        return {}
-    labels: dict[int, str] = {}
-    for slide_channel, group in df.groupby("slide_channel", sort=True):
-        name = str(group["sample"].iloc[0]).strip()
-        if name:
-            labels[int(slide_channel)] = name
-    return labels

@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Callable
 
 from transfection.core import (
-    SlideChannelMapping,
-    SlideMapping,
+    SampleAnalysis,
+    SampleMapping,
     compute_roi_mask_stack,
     default_mask_path,
     discover_roi_positions,
@@ -22,32 +22,33 @@ from transfection.core.parallel import worker_count
 
 
 
-MaskWrittenCallback = Callable[[int, Path, int], None]
+MaskWrittenCallback = Callable[[str, Path, int], None]
 
 
 @dataclass(frozen=True)
-class SlideSegmentationRunResult:
-    written_outputs: list[tuple[int, Path, int]]
-    skipped_positions: dict[int, list[int]]
+class SegmentationRunResult:
+    # (sample name, mask directory, mask count) in assay order.
+    written_outputs: list[tuple[str, Path, int]]
+    skipped_positions: dict[str, list[int]]
 
 
 def _run_position_segmentation(
     workspace: Path,
     *,
-    slide_channel: int,
-    segment_channel: int,
+    sample: str,
+    segmentation_channel: int,
     resolved_pos: int,
     variation_radius: int,
     gaussian_sigma: float,
     force: bool,
-) -> tuple[int, int, int, int, Path | None]:
+) -> tuple[str, int, int, int, Path | None]:
     try:
         pos_dir = position_dir(workspace, resolved_pos)
     except ValueError:
-        return (slide_channel, segment_channel, resolved_pos, 0, None)
+        return (sample, segmentation_channel, resolved_pos, 0, None)
 
     index = read_position_index(pos_dir)
-    validate_channel_index(index, segment_channel)
+    validate_channel_index(index, segmentation_channel)
     mask_count = 0
     first_output: Path | None = None
 
@@ -55,8 +56,6 @@ def _run_position_segmentation(
         output_path = default_mask_path(
             workspace,
             position=index.position,
-            slide_channel=slide_channel,
-            mask_channel=segment_channel,
             roi_file_name=roi.file_name,
         )
         if output_path.exists() and not force:
@@ -69,7 +68,7 @@ def _run_position_segmentation(
             pos_dir,
             index,
             roi,
-            channel=segment_channel,
+            channel=segmentation_channel,
             variation_radius=variation_radius,
             gaussian_sigma=gaussian_sigma,
         )
@@ -78,17 +77,17 @@ def _run_position_segmentation(
         if first_output is None:
             first_output = output_path
 
-    return (slide_channel, segment_channel, resolved_pos, mask_count, first_output)
+    return (sample, segmentation_channel, resolved_pos, mask_count, first_output)
 
 
 def _position_segmentation_task(
-    payload: tuple[str, int, int, int, int, float, bool],
-) -> tuple[int, int, int, int, Path | None]:
-    workspace_str, slide_channel, segment_channel, resolved_pos, variation_radius, gaussian_sigma, force = payload
+    payload: tuple[str, str, int, int, int, float, bool],
+) -> tuple[str, int, int, int, Path | None]:
+    workspace_str, sample, segmentation_channel, resolved_pos, variation_radius, gaussian_sigma, force = payload
     return _run_position_segmentation(
         Path(workspace_str),
-        slide_channel=slide_channel,
-        segment_channel=segment_channel,
+        sample=sample,
+        segmentation_channel=segmentation_channel,
         resolved_pos=resolved_pos,
         variation_radius=variation_radius,
         gaussian_sigma=gaussian_sigma,
@@ -98,37 +97,45 @@ def _position_segmentation_task(
 
 def _position_tasks(
     workspace: Path,
-    slide_positions: dict[int, SlideChannelMapping],
+    samples: SampleMapping,
     *,
     variation_radius: int,
     gaussian_sigma: float,
     force: bool,
-) -> list[tuple[str, int, int, int, int, float, bool]]:
+) -> list[tuple[str, str, int, int, int, float, bool]]:
     return [
         (
             str(workspace),
-            slide_channel,
-            entry.mask_channel,
+            sample,
+            entry.segmentation_channel,
             resolved_pos,
             variation_radius,
             gaussian_sigma,
             force,
         )
-        for slide_channel, entry in slide_positions.items()
+        for sample, entry in samples.items()
         for resolved_pos in entry.positions
     ]
 
 
-def run_slide_segmentation(
+def skipped_positions_summary(skipped_positions: dict[str, list[int]]) -> str:
+    return "; ".join(
+        f"sample {sample!r} -> {', '.join(str(pos) for pos in positions)}"
+        for sample, positions in skipped_positions.items()
+    )
+
+
+def run_segmentation_for_mapping(
     workspace: Path,
     *,
-    mapping: SlideMapping | None,
-    mask_channel: int | None = None,
+    mapping: SampleMapping | None,
+    segmentation_channel: int | None = None,
     variation_radius: int = 2,
     gaussian_sigma: float = 1.0,
     force: bool = False,
     on_mask_written: MaskWrittenCallback | None = None,
-) -> SlideSegmentationRunResult:
+) -> SegmentationRunResult:
+    """Segment every Position of each Sample. Without samples[], every roi/PosN."""
     if variation_radius < 0:
         raise ValueError(f"--variation-radius must be >= 0, got {variation_radius}")
     if gaussian_sigma < 0:
@@ -136,23 +143,23 @@ def run_slide_segmentation(
 
     workspace = workspace.resolve()
     if mapping:
-        slide_positions = mapping
+        samples = mapping
     else:
-        if mask_channel is None:
-            mask_channel = load_assay_for_workspace(workspace).mask_channel
+        if segmentation_channel is None:
+            segmentation_channel = load_assay_for_workspace(workspace).segmentation_channel
         positions = discover_roi_positions(workspace)
-        slide_positions = {
-            0: SlideChannelMapping(
+        # Unnamed placeholder: no samples[] means one group of every roi/PosN.
+        samples = {
+            "": SampleAnalysis(
+                name="",
                 positions=positions,
                 signal_channels=[0],
-                mask_channel=mask_channel,
-                sample_name="",
+                segmentation_channel=segmentation_channel,
             )
         }
-    channel_order = [slide_channel for slide_channel, _ in slide_positions.items()]
     tasks = _position_tasks(
         workspace,
-        slide_positions,
+        samples,
         variation_radius=variation_radius,
         gaussian_sigma=gaussian_sigma,
         force=force,
@@ -160,16 +167,16 @@ def run_slide_segmentation(
     if not tasks:
         raise ValueError("assay mapping defines no valid positions")
 
-    skipped_positions: dict[int, list[int]] = defaultdict(list)
-    written_by_channel: dict[int, tuple[Path, int]] = {}
+    skipped_positions: dict[str, list[int]] = defaultdict(list)
+    written_by_sample: dict[str, tuple[Path, int]] = {}
 
-    def consume(row: tuple[int, int, int, int, Path | None]) -> None:
-        slide_channel, _mask_channel, resolved_pos, written_count, first_output = row
+    def consume(row: tuple[str, int, int, int, Path | None]) -> None:
+        sample, _segmentation_channel, resolved_pos, written_count, first_output = row
         if first_output is None:
-            skipped_positions.setdefault(slide_channel, []).append(resolved_pos)
+            skipped_positions[sample].append(resolved_pos)
             return
-        current_output, current_count = written_by_channel.get(slide_channel, (first_output, 0))
-        written_by_channel[slide_channel] = (current_output, current_count + written_count)
+        current_output, current_count = written_by_sample.get(sample, (first_output, 0))
+        written_by_sample[sample] = (current_output, current_count + written_count)
 
     max_workers = worker_count(len(tasks))
     if max_workers == 1:
@@ -181,64 +188,65 @@ def run_slide_segmentation(
             for future in as_completed(futures):
                 consume(future.result())
 
-    written_outputs: list[tuple[int, Path, int]] = []
-    for slide_channel in channel_order:
-        if slide_channel not in written_by_channel:
+    written_outputs: list[tuple[str, Path, int]] = []
+    for sample in samples:
+        if sample not in written_by_sample:
             continue
-        first_output, mask_count = written_by_channel[slide_channel]
-        written_outputs.append((slide_channel, first_output.parent, mask_count))
+        first_output, mask_count = written_by_sample[sample]
+        written_outputs.append((sample, first_output.parent, mask_count))
         if on_mask_written is not None:
-            on_mask_written(slide_channel, first_output.parent, mask_count)
+            on_mask_written(sample, first_output.parent, mask_count)
 
+    ordered_skipped = {
+        sample: sorted(set(skipped_positions[sample]))
+        for sample in samples
+        if skipped_positions.get(sample)
+    }
     if not written_outputs:
-        if skipped_positions:
-            skipped_summary = "; ".join(
-                f"slide channel {slide_channel} -> {', '.join(str(pos) for pos in positions)}"
-                for slide_channel, positions in sorted(skipped_positions.items())
-            )
+        if ordered_skipped:
             raise ValueError(
                 f"No ROI directories found for positions in assay mapping. "
-                f"Skipped positions: {skipped_summary}"
+                f"Skipped positions: {skipped_positions_summary(ordered_skipped)}"
             )
         raise ValueError("assay mapping defines no valid positions")
 
-    return SlideSegmentationRunResult(
+    return SegmentationRunResult(
         written_outputs=written_outputs,
-        skipped_positions=skipped_positions,
+        skipped_positions=ordered_skipped,
     )
 
 
-def format_written_masks_message(slide_channel: int, output_dir: Path, mask_count: int) -> str:
+def format_written_masks_message(sample: str, output_dir: Path, mask_count: int) -> str:
     noun = "mask" if mask_count == 1 else "masks"
-    return f"Prepared {mask_count} {noun} for slide channel {slide_channel} under: {output_dir}"
+    target = f"sample {sample!r}" if sample else "roi/"
+    return f"Prepared {mask_count} {noun} for {target} under: {output_dir}"
 
 
-def format_skipped_positions_message(skipped_positions: dict[int, list[int]]) -> str:
+def format_skipped_positions_message(skipped_positions: dict[str, list[int]]) -> str:
     total_skipped_positions = sum(len(positions) for positions in skipped_positions.values())
-    skipped_summary = "; ".join(
-        f"slide channel {slide_channel} -> {', '.join(str(pos) for pos in positions)}"
-        for slide_channel, positions in sorted(skipped_positions.items())
+    return (
+        f"Skipped {total_skipped_positions} missing positions from sample mapping: "
+        f"{skipped_positions_summary(skipped_positions)}"
     )
-    return f"Skipped {total_skipped_positions} missing positions from slide mapping: {skipped_summary}"
 
 
 def run_segment(
     *,
     workspace: Path,
     assay: Path | None = None,
-    mapping: SlideMapping | None = None,
+    mapping: SampleMapping | None = None,
     variation_radius: int = 2,
     gaussian_sigma: float = 1.0,
     force: bool = False,
     on_mask_written: MaskWrittenCallback | None = None,
-) -> SlideSegmentationRunResult:
+) -> SegmentationRunResult:
     config = load_assay_for_workspace(workspace, assay)
     if mapping is None:
         mapping = config.mapping or None
-    return run_slide_segmentation(
+    return run_segmentation_for_mapping(
         workspace,
         mapping=mapping,
-        mask_channel=config.mask_channel,
+        segmentation_channel=config.segmentation_channel,
         variation_radius=variation_radius,
         gaussian_sigma=gaussian_sigma,
         force=force,

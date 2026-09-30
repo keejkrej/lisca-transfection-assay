@@ -11,11 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from transfection.core.slide import (
-    SlideChannelMapping,
-    SlideMapping,
-    parse_position_spec,
-    validate_slide_mapping,
+from lisca.migrations import migrate_workspace
+
+from transfection.core.sample import (
+    SampleMapping,
+    build_sample_mapping,
+    parse_default_channels,
+    parse_sample_channel_overrides,
 )
 
 ASSAY_FILENAME = "assay.json"
@@ -27,9 +29,8 @@ DEFAULT_MAX_ONSET_MINUTES = 120.0
 
 
 MISSING_SAMPLES_FOR_PLOT = (
-    "plot/results stages require assay.json samples[] with a non-empty name "
-    "to group analysis/ into results/<sample>/. timeseries, auc, and fit do not "
-    "need sample names (they write analysis/PosN/*.csv from roi/ + analysis.channels)."
+    "plot/results stages require assay.json samples[] to group analysis/ into "
+    "results/<sample>/. traces, auc, and fit do not need samples."
 )
 
 
@@ -39,8 +40,8 @@ class AssayConfig:
     assay_type: str
     name: str
     data_path: str
-    mapping: SlideMapping
-    mask_channel: int
+    mapping: SampleMapping
+    segmentation_channel: int
     signal_channels: tuple[int, ...]
     interval_minutes: float | None
     max_onset_minutes: float
@@ -67,62 +68,12 @@ def load_assay(path: Path | str) -> AssayConfig:
 
 
 def load_assay_for_workspace(workspace: Path, assay: Path | None = None) -> AssayConfig:
+    """Load the workspace assay.json after migrating the workspace on disk.
+
+    An explicit ``assay`` path outside the workspace is read as-is.
+    """
+    migrate_workspace(Path(workspace))
     return load_assay(resolve_assay_path(workspace, assay))
-
-
-def build_slide_mapping_from_assay(
-    samples: list[Any],
-    analysis: dict[str, Any] | None,
-    *,
-    source: Path | str,
-) -> SlideMapping:
-    if not isinstance(samples, list):
-        raise ValueError(f"{source}: samples must be an array")
-
-    default_mask, default_signal = _parse_default_channels(analysis, source=source)
-    overrides = _parse_sample_channel_overrides(analysis, source=source)
-
-    mapping: SlideMapping = {}
-    for index, row in enumerate(samples):
-        if not isinstance(row, dict):
-            raise ValueError(f"{source}: samples[{index}] must be an object")
-
-        sample_name = str(row.get("name", "")).strip()
-
-        slide_channel = _require_nonneg_int_field(
-            row, "slideChannel", source=source, index=index, where="samples"
-        )
-        if slide_channel in overrides:
-            mask_channel, signal_channels = overrides[slide_channel]
-        elif default_mask is not None and default_signal is not None:
-            mask_channel, signal_channels = default_mask, default_signal
-        else:
-            raise ValueError(
-                f"{source}: missing analysis.channels (and no sampleChannels override) "
-                f"for samples[{index}] slideChannel {slide_channel}"
-            )
-
-        positions_raw = row.get("positions")
-        if positions_raw is None or str(positions_raw).strip() == "":
-            raise ValueError(f"{source}: samples[{index}] missing positions")
-        try:
-            positions = parse_position_spec(str(positions_raw))
-        except ValueError as exc:
-            raise ValueError(f"{source}: samples[{index}] positions: {exc}") from exc
-
-        mapping[slide_channel] = SlideChannelMapping(
-            positions=positions,
-            signal_channels=list(signal_channels),
-            mask_channel=mask_channel,
-            sample_name=sample_name,
-        )
-
-    return validate_slide_mapping(mapping)
-
-
-def build_slide_mapping_from_samples(samples: list[Any], *, source: Path | str) -> SlideMapping:
-    """Deprecated alias — prefer :func:`build_slide_mapping_from_assay` with analysis."""
-    return build_slide_mapping_from_assay(samples, analysis=None, source=source)
 
 
 def parse_interval_minutes(amount: object, unit: object) -> float | None:
@@ -177,21 +128,11 @@ def resolve_interval_minutes(
     return require_interval_minutes(load_assay(assay_path))
 
 
-def named_sample_mapping(config: AssayConfig) -> SlideMapping:
-    """Named ``samples[]`` rows only. Empty names are ignored (analysis still ran)."""
-    return {
-        slide_channel: entry
-        for slide_channel, entry in config.mapping.items()
-        if entry.sample_name
-    }
-
-
-def require_named_samples(config: AssayConfig) -> SlideMapping:
-    """Plot/results grouping. Fails if no non-empty ``samples[].name``."""
-    named = named_sample_mapping(config)
-    if not named:
+def require_samples(config: AssayConfig) -> SampleMapping:
+    """Plot/results grouping. Fails when assay.json defines no ``samples[]``."""
+    if not config.mapping:
         raise ValueError(f"{config.path}: {MISSING_SAMPLES_FOR_PLOT}")
-    return named
+    return config.mapping
 
 
 def _parse_assay(raw: dict[str, Any], *, path: Path) -> AssayConfig:
@@ -210,22 +151,22 @@ def _parse_assay(raw: dict[str, Any], *, path: Path) -> AssayConfig:
     elif not samples:
         mapping = {}
     else:
-        mapping = build_slide_mapping_from_assay(
+        mapping = build_sample_mapping(
             samples, analysis if isinstance(analysis, dict) else None, source=path
         )
 
-    default_mask, default_signal = _parse_default_channels(
+    default_segmentation, default_signal = parse_default_channels(
         analysis if isinstance(analysis, dict) else None, source=path
     )
-    if default_mask is None or default_signal is None:
+    if default_segmentation is None or default_signal is None:
         raise ValueError(f"{path}: missing analysis.channels")
     signal_channels = tuple(default_signal)
-    extra_signals = _parse_sample_channel_overrides(
+    extra_signals = parse_sample_channel_overrides(
         analysis if isinstance(analysis, dict) else None, source=path
     )
     if extra_signals:
         merged = list(signal_channels)
-        for _slide, (_mask, signals) in extra_signals.items():
+        for _segmentation, signals in extra_signals.values():
             for channel in signals:
                 if channel not in merged:
                     merged.append(channel)
@@ -261,102 +202,9 @@ def _parse_assay(raw: dict[str, Any], *, path: Path) -> AssayConfig:
         name=name,
         data_path=data_path,
         mapping=mapping,
-        mask_channel=default_mask,
+        segmentation_channel=default_segmentation,
         signal_channels=signal_channels,
         interval_minutes=interval,
         max_onset_minutes=max_onset,
         skip_segment=skip_segment,
-    )
-
-
-def _parse_default_channels(
-    analysis: dict[str, Any] | None,
-    *,
-    source: Path | str,
-) -> tuple[int | None, list[int] | None]:
-    if not isinstance(analysis, dict):
-        return None, None
-    channels = analysis.get("channels")
-    if channels is None:
-        return None, None
-    if not isinstance(channels, dict):
-        raise ValueError(f"{source}: analysis.channels must be an object")
-    mask = _require_nonneg_int_value(channels.get("mask"), field="analysis.channels.mask", source=source)
-    signal = _require_signal_list(channels.get("signal"), field="analysis.channels.signal", source=source)
-    return mask, signal
-
-
-def _parse_sample_channel_overrides(
-    analysis: dict[str, Any] | None,
-    *,
-    source: Path | str,
-) -> dict[int, tuple[int, list[int]]]:
-    if not isinstance(analysis, dict):
-        return {}
-    rows = analysis.get("sampleChannels")
-    if rows is None:
-        return {}
-    if not isinstance(rows, list):
-        raise ValueError(f"{source}: analysis.sampleChannels must be an array")
-
-    overrides: dict[int, tuple[int, list[int]]] = {}
-    for index, row in enumerate(rows):
-        if not isinstance(row, dict):
-            raise ValueError(f"{source}: analysis.sampleChannels[{index}] must be an object")
-        slide_channel = _require_nonneg_int_field(
-            row, "slideChannel", source=source, index=index, where="analysis.sampleChannels"
-        )
-        mask = _require_nonneg_int_field(
-            row, "mask", source=source, index=index, where="analysis.sampleChannels"
-        )
-        signal = _require_signal_list(
-            row.get("signal"),
-            field=f"analysis.sampleChannels[{index}].signal",
-            source=source,
-        )
-        overrides[slide_channel] = (mask, signal)
-    return overrides
-
-
-def _require_signal_list(raw: object, *, field: str, source: Path | str) -> list[int]:
-    if not isinstance(raw, list) or len(raw) == 0:
-        raise ValueError(f"{source}: {field} must be a non-empty array of integers")
-    values: list[int] = []
-    for item in raw:
-        try:
-            value = int(item)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{source}: {field} must contain integers, got {item!r}") from exc
-        if value < 0:
-            raise ValueError(f"{source}: {field} values must be non-negative, got {value}")
-        values.append(value)
-    return values
-
-
-def _require_nonneg_int_value(raw: object, *, field: str, source: Path | str) -> int:
-    if raw is None:
-        raise ValueError(f"{source}: missing {field}")
-    try:
-        value = int(raw) if not isinstance(raw, str) else int(raw.strip())
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{source}: {field} must be an integer, got {raw!r}") from exc
-    if value < 0:
-        raise ValueError(f"{source}: {field} must be non-negative, got {value}")
-    return value
-
-
-def _require_nonneg_int_field(
-    row: dict[str, Any],
-    field: str,
-    *,
-    source: Path | str,
-    index: int,
-    where: str,
-) -> int:
-    if field not in row:
-        raise ValueError(f"{source}: {where}[{index}] missing {field}")
-    return _require_nonneg_int_value(
-        row[field],
-        field=f"{where}[{index}].{field}",
-        source=source,
     )

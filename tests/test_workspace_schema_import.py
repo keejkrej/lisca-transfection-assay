@@ -52,6 +52,9 @@ def test_read_position_index_uses_lisca_when_shape_present(tmp_path: Path) -> No
             {
                 "position": 1,
                 "axisOrder": "TCZYX",
+                "timeCount": 2,
+                "channelCount": 1,
+                "zCount": 1,
                 "rois": [
                     {
                         "roi": 0,

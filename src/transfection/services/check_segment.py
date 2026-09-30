@@ -11,7 +11,7 @@ import numpy as np
 
 from transfection.core import (
     RoiCrop,
-    SlideMapping,
+    SampleMapping,
     default_mask_path,
     load_assay_for_workspace,
     position_dir,
@@ -22,7 +22,7 @@ from transfection.core import (
     validate_channel_index,
 )
 from transfection.core.parallel import worker_count
-from transfection.services.segment import format_skipped_positions_message
+from transfection.services.segment import skipped_positions_summary, format_skipped_positions_message
 
 
 REVIEW_FRAME_SIZE = 512
@@ -39,7 +39,7 @@ class CheckSegmentVideo:
 @dataclass(frozen=True)
 class CheckSegmentRunResult:
     videos: list[CheckSegmentVideo]
-    skipped_positions: dict[int, list[int]]
+    skipped_positions: dict[str, list[int]]
 
 
 def default_output_dir(workspace: Path) -> Path:
@@ -146,16 +146,16 @@ def roi_channel_frames(pos_dir: Path, index, roi: RoiCrop, *, channel: int) -> n
     stack = read_roi_stack(pos_dir / roi.file_name, roi.shape)
     frames = [
         np.asarray(
-            roi_frame_2d(stack, index.axis_order, timepoint=timepoint, channel=channel),
+            roi_frame_2d(stack, index.axis_order, frame=frame_index, channel=channel),
             dtype=np.float64,
         )
-        for timepoint in range(index.time_count)
+        for frame_index in range(index.time_count)
     ]
     return np.stack(frames, axis=0)
 
 
-def _review_channels(*, mask_channel: int, signal_channel: int) -> list[int]:
-    return sorted({mask_channel, signal_channel})
+def _review_channels(*, segmentation_channel: int, signal_channel: int) -> list[int]:
+    return sorted({segmentation_channel, signal_channel})
 
 
 def write_check_segment_video(
@@ -189,30 +189,32 @@ def write_check_segment_video(
 def _run_position_check_segment(
     workspace: Path,
     *,
-    slide_channel: int,
-    mask_channel: int,
+    sample: str,
+    segmentation_channel: int,
     signal_channel: int,
     resolved_pos: int,
     output_dir: Path,
     fps: float,
     force: bool,
-) -> tuple[int, int, list[CheckSegmentVideo] | None]:
+) -> tuple[str, int, list[CheckSegmentVideo] | None]:
     try:
         pos_dir = position_dir(workspace, resolved_pos)
     except ValueError:
-        return (slide_channel, resolved_pos, None)
+        return (sample, resolved_pos, None)
 
     index = read_position_index(pos_dir)
-    validate_channel_index(index, mask_channel)
-    review_channels = _review_channels(mask_channel=mask_channel, signal_channel=signal_channel)
+    validate_channel_index(index, segmentation_channel)
+    review_channels = _review_channels(
+        segmentation_channel=segmentation_channel, signal_channel=signal_channel
+    )
     videos: list[CheckSegmentVideo] = []
     for roi in index.rois:
-        mask_reference_frames = roi_channel_frames(pos_dir, index, roi, channel=mask_channel)
+        mask_reference_frames = roi_channel_frames(
+            pos_dir, index, roi, channel=segmentation_channel
+        )
         mask_path = default_mask_path(
             workspace,
             position=index.position,
-            slide_channel=slide_channel,
-            mask_channel=mask_channel,
             roi_file_name=roi.file_name,
         )
         mask_stack = read_mask_stack(
@@ -224,7 +226,7 @@ def _run_position_check_segment(
             videos.append(
                 write_check_segment_video(
                     output_dir=output_dir,
-                    position=position,
+                    position=index.position,
                     pos_dir=pos_dir,
                     index=index,
                     roi=roi,
@@ -234,16 +236,16 @@ def _run_position_check_segment(
                     force=force,
                 )
             )
-    return (slide_channel, resolved_pos, videos)
+    return (sample, resolved_pos, videos)
 
 
 def _position_check_segment_task(
-    payload: tuple[str, int, int, int, int, str, float, bool],
-) -> tuple[int, int, list[CheckSegmentVideo] | None]:
+    payload: tuple[str, str, int, int, int, str, float, bool],
+) -> tuple[str, int, list[CheckSegmentVideo] | None]:
     (
         workspace_str,
-        slide_channel,
-        mask_channel,
+        sample,
+        segmentation_channel,
         signal_channel,
         resolved_pos,
         output_dir_str,
@@ -252,8 +254,8 @@ def _position_check_segment_task(
     ) = payload
     return _run_position_check_segment(
         Path(workspace_str),
-        slide_channel=slide_channel,
-        mask_channel=mask_channel,
+        sample=sample,
+        segmentation_channel=segmentation_channel,
         signal_channel=signal_channel,
         resolved_pos=resolved_pos,
         output_dir=Path(output_dir_str),
@@ -264,24 +266,24 @@ def _position_check_segment_task(
 
 def _position_tasks(
     workspace: Path,
-    slide_positions: SlideMapping,
+    samples: SampleMapping,
     *,
     output_dir: Path,
     fps: float,
     force: bool,
-) -> list[tuple[str, int, int, int, int, str, float, bool]]:
+) -> list[tuple[str, str, int, int, int, str, float, bool]]:
     return [
         (
             str(workspace),
-            slide_channel,
-            entry.mask_channel,
+            sample,
+            entry.segmentation_channel,
             signal_channel,
             resolved_pos,
             str(output_dir),
             fps,
             force,
         )
-        for slide_channel, entry in slide_positions.items()
+        for sample, entry in samples.items()
         for signal_channel in entry.signal_channels
         for resolved_pos in entry.positions
     ]
@@ -295,7 +297,7 @@ def run_check_segment(
     *,
     workspace: Path,
     assay: Path | None = None,
-    mapping: SlideMapping | None = None,
+    mapping: SampleMapping | None = None,
     output: Path | None = None,
     fps: float = 6.0,
     force: bool = False,
@@ -308,10 +310,9 @@ def run_check_segment(
     output_dir = default_output_dir(workspace) if output is None else output.resolve()
     if mapping is None:
         mapping = load_assay_for_workspace(workspace, assay).mapping
-    slide_positions = mapping
     tasks = _position_tasks(
         workspace,
-        slide_positions,
+        mapping,
         output_dir=output_dir,
         fps=fps,
         force=force,
@@ -319,13 +320,13 @@ def run_check_segment(
     if not tasks:
         raise ValueError("assay mapping defines no valid positions")
 
-    skipped_positions: dict[int, list[int]] = defaultdict(list)
+    skipped_positions: dict[str, list[int]] = defaultdict(list)
     videos: list[CheckSegmentVideo] = []
 
-    def consume(row: tuple[int, int, list[CheckSegmentVideo] | None]) -> None:
-        slide_channel, resolved_pos, position_videos = row
+    def consume(row: tuple[str, int, list[CheckSegmentVideo] | None]) -> None:
+        sample, resolved_pos, position_videos = row
         if position_videos is None:
-            skipped_positions.setdefault(slide_channel, []).append(resolved_pos)
+            skipped_positions[sample].append(resolved_pos)
             return
         videos.extend(position_videos)
         if on_video_written is not None:
@@ -342,19 +343,20 @@ def run_check_segment(
             for future in as_completed(futures):
                 consume(future.result())
 
+    ordered_skipped = {
+        sample: sorted(set(skipped_positions[sample]))
+        for sample in mapping
+        if skipped_positions.get(sample)
+    }
     if not videos:
-        if skipped_positions:
-            skipped_summary = "; ".join(
-                f"slide channel {slide_channel} -> {', '.join(str(pos) for pos in positions)}"
-                for slide_channel, positions in sorted(skipped_positions.items())
-            )
+        if ordered_skipped:
             raise ValueError(
                 f"No check-segment videos produced for positions in assay mapping. "
-                f"Skipped positions: {skipped_summary}"
+                f"Skipped positions: {skipped_positions_summary(ordered_skipped)}"
             )
         raise ValueError("No check-segment videos produced")
 
-    return CheckSegmentRunResult(videos=videos, skipped_positions=skipped_positions)
+    return CheckSegmentRunResult(videos=videos, skipped_positions=ordered_skipped)
 
 
 __all__ = [

@@ -420,7 +420,7 @@ wheels = [
 [[package]]
 name = "lisca"
 version = "0.1.0"
-source = { git = "https://github.com/keejkrej/lisca.git?subdirectory=python&rev=802d5a6b14bc348b70bc0bce280443033496b411#802d5a6b14bc348b70bc0bce280443033496b411" }
+source = { git = "https://github.com/keejkrej/lisca.git?subdirectory=python&rev=d57b2dab7d93825ad75d95b09678036aae8557e3#d57b2dab7d93825ad75d95b09678036aae8557e3" }
 dependencies = [
     { name = "numpy" },
     { name = "pillow" },
@@ -1256,7 +1256,7 @@ dev = [
 requires-dist = [
     { name = "imageio" },
     { name = "imageio-ffmpeg" },
-    { name = "lisca", git = "https://github.com/keejkrej/lisca.git?subdirectory=python&rev=802d5a6b14bc348b70bc0bce280443033496b411" },
+    { name = "lisca", git = "https://github.com/keejkrej/lisca.git?subdirectory=python&rev=d57b2dab7d93825ad75d95b09678036aae8557e3" },
     { name = "marimo" },
     { name = "markdown-it-py", specifier = "<4" },
     { name = "matplotlib" },

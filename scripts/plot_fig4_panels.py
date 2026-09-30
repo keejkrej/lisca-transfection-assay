@@ -33,11 +33,11 @@ def style_plot_axes(ax: plt.Axes) -> None:
     ax.tick_params(axis="both", labelsize=TICK_LABEL_FONT)
 
 
-def position_image_path(workspace: Path, pos: int, timepoint: int) -> Path:
+def position_image_path(workspace: Path, pos: int, frame_index: int) -> Path:
     return (
         workspace
         / f"Pos{pos}"
-        / f"img_channel00{SIGNAL_CHANNEL}_position{pos:03d}_time{timepoint:09d}_z000.tif"
+        / f"img_channel00{SIGNAL_CHANNEL}_position{pos:03d}_time{frame_index:09d}_z000.tif"
     )
 
 
@@ -188,17 +188,17 @@ def plot_position_tile(
         )
 
 
-def plot_timeseries_panel(ax, timeseries_df: pd.DataFrame) -> None:
+def plot_traces_panel(ax, traces_df: pd.DataFrame) -> None:
     all_values: list[np.ndarray] = []
 
-    for _, trace in timeseries_df.groupby(["pos", "roi"], sort=True):
+    for _, trace in traces_df.groupby(["pos", "roi"], sort=True):
         values = trace["corrected"].astype(float).to_numpy(dtype=float)
         minutes = trace["t"].astype(float).to_numpy(dtype=float) * INTERVAL_MINUTES
         all_values.append(values)
         ax.plot(minutes, values, color="#b0b0b0", linewidth=0.7, alpha=0.25, zorder=1)
 
     median_trace = (
-        timeseries_df.groupby("t", as_index=False)["corrected"]
+        traces_df.groupby("t", as_index=False)["corrected"]
         .median()
         .sort_values("t")
     )
@@ -223,7 +223,7 @@ def plot_timeseries_panel(ax, timeseries_df: pd.DataFrame) -> None:
         pad = 0.05 * (y_high - y_low if y_high > y_low else max(abs(y_high), 1.0))
         ax.set_ylim(y_low - pad, y_high + pad)
 
-    ax.set_xlim(0.0, float(timeseries_df["t"].max() * INTERVAL_MINUTES))
+    ax.set_xlim(0.0, float(traces_df["t"].max() * INTERVAL_MINUTES))
     ax.set_ylabel("eGFP fluorescence (a.u.)", fontsize=AXIS_LABEL_FONT)
     ax.set_xlabel("time (min)", fontsize=AXIS_LABEL_FONT)
     ax.spines["top"].set_visible(False)
@@ -265,13 +265,13 @@ def render_figure(
     crop_rank: int = 0,
     grid_index: int | None = DEFAULT_GRID_INDEX,
     fit_csv: Path | None = None,
-    timeseries_csv: Path | None = None,
+    traces_csv: Path | None = None,
 ) -> Path:
     workspace = workspace.resolve()
     fit_path = fit_csv or (workspace / "results" / "fit.csv")
-    ts_path = timeseries_csv or (workspace / "timeseries" / "sc0_ch1.csv")
+    ts_path = traces_csv or (workspace / "timeseries" / "sc0_ch1.csv")
     fit_df = pd.read_csv(fit_path)
-    timeseries_df = pd.read_csv(ts_path)
+    traces_df = pd.read_csv(ts_path)
 
     fig = plt.figure(figsize=(14.0, 5.2))
     grid = fig.add_gridspec(1, 3, width_ratios=[0.9, 1.1, 1.0], wspace=0.28)
@@ -286,7 +286,7 @@ def render_figure(
         crop_rank=crop_rank,
         grid_index=grid_index,
     )
-    plot_timeseries_panel(ax_b, timeseries_df)
+    plot_traces_panel(ax_b, traces_df)
     plot_correlation_panel(ax_c, fit_df)
 
     fig.subplots_adjust(left=0.05, right=0.98, top=0.90, bottom=0.12, wspace=0.28)
@@ -336,7 +336,7 @@ def main() -> None:
         help="Randomize panel a position and 1/3×1/3 crop region.",
     )
     parser.add_argument("--fit-csv", type=Path, default=None)
-    parser.add_argument("--timeseries-csv", type=Path, default=None)
+    parser.add_argument("--traces-csv", type=Path, default=None)
     args = parser.parse_args()
 
     position = args.pos
@@ -356,7 +356,7 @@ def main() -> None:
         crop_rank=crop_rank,
         grid_index=grid_index,
         fit_csv=args.fit_csv,
-        timeseries_csv=args.timeseries_csv,
+        traces_csv=args.traces_csv,
     )
     if args.shuffle:
         print(f"Panel a: Pos{position}, crop grid index {grid_index}")

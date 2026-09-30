@@ -29,7 +29,7 @@ packages = ["src/transfection"]
 
 [tool.uv.sources]
 # lisca base only (no lisca[analysis] — that extra depends on this package).
-lisca = { git = "https://github.com/keejkrej/lisca.git", subdirectory = "python", rev = "802d5a6b14bc348b70bc0bce280443033496b411" }
+lisca = { git = "https://github.com/keejkrej/lisca.git", subdirectory = "python", rev = "d57b2dab7d93825ad75d95b09678036aae8557e3" }
 
 [dependency-groups]
 dev = [

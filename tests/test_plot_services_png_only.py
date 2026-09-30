@@ -10,7 +10,7 @@ import pandas as pd
 
 from transfection.services.plot_auc import run_plot_auc
 from transfection.services.plot_fit import run_plot_fit
-from transfection.services.plot_timeseries import run_plot_timeseries
+from transfection.services.plot_traces import run_plot_traces
 
 
 def _write_plot_workspace(tmp_path: Path) -> Path:
@@ -22,14 +22,13 @@ def _write_plot_workspace(tmp_path: Path) -> Path:
                 "interval": {"value": 10, "unit": "minute"},
                 "samples": [
                     {
-                        "slideChannel": 0,
                         "name": "condA",
                         "positions": "1",
                     }
                 ],
                 "analysis": {
                     "maxOnsetMinutes": 120,
-                    "channels": {"mask": 0, "signal": [1]},
+                    "channels": {"segmentation": 0, "signal": [1]},
                 },
             }
         ),
@@ -70,9 +69,9 @@ def _assert_no_xlsx(workspace: Path) -> None:
     assert xlsx == [], f"plot service wrote xlsx: {xlsx}"
 
 
-def test_plot_timeseries_service_writes_png_not_xlsx(tmp_path: Path) -> None:
+def test_plot_traces_service_writes_png_not_xlsx(tmp_path: Path) -> None:
     workspace = _write_plot_workspace(tmp_path)
-    written = run_plot_timeseries(metrics_dir=workspace, interval=10.0)
+    written = run_plot_traces(metrics_dir=workspace, interval=10.0)
     assert written
     assert all(path.suffix == ".png" for path in written)
     assert (workspace / "results" / "condA" / "traces.png").is_file()

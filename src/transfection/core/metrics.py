@@ -51,7 +51,7 @@ def compute_roi_metrics(
         stack = read_roi_stack(roi_path, roi.shape)
         for stack_t in range(index.time_count):
             patch = np.asarray(
-                roi_frame_2d(stack, index.axis_order, timepoint=stack_t, channel=channel),
+                roi_frame_2d(stack, index.axis_order, frame=stack_t, channel=channel),
                 dtype=np.uint64,
             )
             quantile_values = np.quantile(patch, quartiles, method="linear")
@@ -86,9 +86,7 @@ def compute_masked_roi_metrics(
     pos_dir: Path,
     index: PositionIndex,
     *,
-    slide_channel: int,
     channel: int,
-    mask_channel: int,
 ) -> pd.DataFrame:
     rows: list[dict[str, int | float | None]] = []
     for roi in index.rois:
@@ -97,12 +95,10 @@ def compute_masked_roi_metrics(
             raise ValueError(f"Missing ROI TIFF referenced by index.json: {roi_path}")
 
         stack = read_roi_stack(roi_path, roi.shape)
-        first_frame = roi_frame_2d(stack, index.axis_order, timepoint=0, channel=channel)
+        first_frame = roi_frame_2d(stack, index.axis_order, frame=0, channel=channel)
         mask_path = default_mask_path(
             workspace,
             position=index.position,
-            slide_channel=slide_channel,
-            mask_channel=mask_channel,
             roi_file_name=roi.file_name,
         )
         mask_stack = read_mask_stack(
@@ -113,7 +109,7 @@ def compute_masked_roi_metrics(
 
         for stack_t in range(index.time_count):
             frame = np.asarray(
-                roi_frame_2d(stack, index.axis_order, timepoint=stack_t, channel=channel),
+                roi_frame_2d(stack, index.axis_order, frame=stack_t, channel=channel),
                 dtype=np.float64,
             )
             mask = mask_stack[stack_t]
@@ -158,7 +154,7 @@ def compute_full_frame_roi_metrics(
         stack = read_roi_stack(roi_path, roi.shape)
         for stack_t in range(index.time_count):
             frame = np.asarray(
-                roi_frame_2d(stack, index.axis_order, timepoint=stack_t, channel=channel),
+                roi_frame_2d(stack, index.axis_order, frame=stack_t, channel=channel),
                 dtype=np.float64,
             )
             area = int(frame.size)
@@ -191,13 +187,13 @@ def write_metrics_csv(df: pd.DataFrame, output_csv: Path) -> None:
     write_csv_and_parallel_xlsx(df, output_csv)
 
 
-def load_timeseries_csv(csv_path: Path) -> pd.DataFrame:
+def load_trace_csv(csv_path: Path) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
     required = {"roi", "t", "corrected"}
     missing = required.difference(df.columns)
     if missing:
         raise ValueError(
-            f"{csv_path} is missing required columns for timeseries metrics: {sorted(missing)}"
+            f"{csv_path} is missing required columns for trace metrics: {sorted(missing)}"
         )
     sort_columns = ["roi", "t"]
     if "pos" in df.columns:

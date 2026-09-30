@@ -9,26 +9,26 @@ from transfection.app import app
 from transfection.core import (
     infer_workspace_root,
     load_assay_for_workspace,
-    require_named_samples,
+    require_samples,
     resolve_interval_minutes,
 )
 from transfection.core.sample_pack import publish_sample_traces_xlsx
-from transfection.services.plot_timeseries import (
-    format_written_timeseries_plot_message,
-    run_plot_timeseries,
+from transfection.services.plot_traces import (
+    format_written_traces_plot_message,
+    run_plot_traces,
 )
 
-NAME = "plot-timeseries"
+NAME = "plot-traces"
 HELP = (
     "Read analysis/PosN/chC.csv (never recomputes traces) and write "
     "results/<sample>/traces.xlsx plus traces.png, traces_shared_y.png, "
     "traces_summary.png, traces_summary_shared_y.png, and area.png / area_shared_y.png. "
-    "Requires samples[].name."
+    "Requires samples[]."
 )
 
 
 @app.command(NAME, help=HELP)
-def plot_timeseries(
+def plot_traces(
     metrics_dir: Annotated[
         Path,
         typer.Argument(
@@ -76,15 +76,15 @@ def plot_timeseries(
 ) -> None:
     workspace = infer_workspace_root(metrics_dir)
     config = load_assay_for_workspace(workspace, assay)
-    mapping = require_named_samples(config)
+    mapping = require_samples(config)
     for path in publish_sample_traces_xlsx(workspace, mapping):
         typer.echo(f"Wrote table: {path}")
     resolved = resolve_interval_minutes(workspace, assay=assay, override=interval)
-    written_plots = run_plot_timeseries(
+    written_plots = run_plot_traces(
         metrics_dir=workspace,
         interval=resolved,
         output=output,
         columns=columns,
     )
     for output_plot in written_plots:
-        typer.echo(format_written_timeseries_plot_message(output_plot))
+        typer.echo(format_written_traces_plot_message(output_plot))

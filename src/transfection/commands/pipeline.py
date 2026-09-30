@@ -11,10 +11,10 @@ from transfection.services.pipeline import format_pipeline_done, run_pipeline
 NAME = "pipeline"
 HELP = (
     "Run the full transfection order from assay.json: "
-    "segment → timeseries → plot-timeseries → auc → plot-auc → fit → plot-fit. "
+    "segment → traces → plot-traces → auc → plot-auc → fit → plot-fit. "
     "Analysis stages write analysis/ only; plot services write PNG and "
     "pipeline/CLI plot-* publish XLSX then plot so results/<sample>/ has tables + png. "
-    "analysis.skipSegment skips segment and uses full-ROI timeseries."
+    "analysis.skipSegment skips segment and uses full-ROI Traces."
 )
 
 

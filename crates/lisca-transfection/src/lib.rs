@@ -21,7 +21,7 @@
 
 pub mod array;
 pub mod assay;
-pub mod slide;
+pub mod sample;
 
 mod auc;
 mod csv_io;
@@ -37,9 +37,8 @@ mod sample_pack;
 mod segment;
 #[cfg(feature = "onnx")]
 mod segment_onnx;
-mod timeseries;
-mod timeseries_stage;
 mod traces;
+mod traces_stage;
 mod workspace_layout;
 
 pub use array::{
@@ -48,26 +47,28 @@ pub use array::{
     MaskedRoiStats,
 };
 pub use assay::{
-    analysis_mask_channel, analysis_signal_channels, interval_minutes, load_assay,
+    analysis_segmentation_channel, analysis_signal_channels, interval_minutes, load_assay,
     load_assay_for_workspace, max_onset_minutes, resolve_assay_path, skip_segment, AssayJsonFile,
     ASSAY_TYPE_TRANSFECTION, DEFAULT_INTERVAL_MINUTES, DEFAULT_MAX_ONSET_MINUTES,
 };
 pub use auc::run_auc;
 pub use fit::{default_fit_jobs, run_fit};
 pub use pipeline::{run_pipeline, run_pipeline_with_mode, run_sync, run_sync_with_mode};
-pub use plot_stages::{run_plot_auc, run_plot_fit, run_plot_timeseries, DEFAULT_PLOT_COLUMNS};
+pub use plot_stages::{run_plot_auc, run_plot_fit, run_plot_traces, DEFAULT_PLOT_COLUMNS};
+pub use sample::{
+    build_sample_mapping, load_mapping_for_workspace, require_samples, SampleAnalysis,
+    SampleMapping, MISSING_SAMPLES,
+};
 pub use sample_pack::{publish_sample_tables_xlsx, publish_sample_traces_xlsx};
 pub use segment::{
     default_jobs, resolve_pattern_seg_model_dir, run_segment, SegmentBackend, SegmentOptions,
 };
 #[cfg(feature = "onnx")]
 pub use segment_onnx::{OnnxSegmentConfig, OnnxSegmenter};
-pub use slide::{
-    build_slide_mapping, load_mapping_for_workspace, named_sample_mapping, require_named_samples,
-    SlideChannelMapping, SlideMapping, MISSING_NAMED_SAMPLES,
+pub use traces::{parse_trace_path, resolve_sample};
+pub use traces_stage::{
+    default_traces_jobs, run_position_traces, run_traces, run_traces_with_mode,
 };
-pub use timeseries::{parse_timeseries_path, resolve_slide_channel};
-pub use timeseries_stage::{default_timeseries_jobs, run_timeseries, run_timeseries_with_mode};
 pub use workspace_layout::{
     ANALYSIS_DIRNAME, BBOX_DIRNAME, MASK_DIRNAME, RESULTS_DIRNAME, ROI_DIRNAME,
 };

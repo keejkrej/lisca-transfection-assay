@@ -63,8 +63,8 @@ On-disk CSV/XLSX columns are locked in **`docs/schema.md`**. Do not invent extra
 ```sh
 uv run transfection --help
 uv run transfection segment WORKSPACE [--assay PATH] [--force]
-uv run transfection timeseries WORKSPACE [--assay PATH]
-uv run transfection plot-timeseries WORKSPACE|ANALYSIS_DIR [--interval M]
+uv run transfection traces WORKSPACE [--assay PATH]
+uv run transfection plot-traces WORKSPACE|ANALYSIS_DIR [--interval M]
 uv run transfection auc WORKSPACE [--interval M]
 uv run transfection plot-auc WORKSPACE
 uv run transfection fit WORKSPACE [--interval M] [--max-onset-minutes M]
@@ -86,10 +86,11 @@ cargo run -p lisca-transfection --features onnx --release --bin lisca-analyze --
 Defaults:
 
 - `--assay` → `<workspace>/assay.json`
+- Every stage runs `lisca.migrations.migrate_workspace(workspace)` before reading the workspace `assay.json`, so older files (`samples[].slideChannel`, `channels.mask`) are rewritten on disk to the current shape. The Rust crate reads the current shape only.
 - `--interval` / `--max-onset-minutes` → from `assay.json` when omitted (`interval`, `analysis.maxOnsetMinutes`)
-- Segment skip / full-ROI timeseries → `analysis.skipSegment` (replaces CLI `--full-frame`)
-- Parallel stages (segment / timeseries / auc / fit) always use `os.cpu_count()` workers; timeseries writes each CSV as soon as that position finishes
-- Analysis stages (`timeseries` / `auc` / `fit`) write `analysis/PosN/*.csv` from `roi/` + `assay.json` interval/channels/maxOnset. They do **not** require `samples[].name`. Plot *services* (`run_plot_*`) require named `samples[]` and write PNG only. Table packs (`traces.xlsx` / `auc.xlsx` / `fit.xlsx`) come from `publish_sample_traces_xlsx` / `publish_sample_tables_xlsx`; CLI `plot-*` and pipeline call those then plot.
+- Segment skip / full-ROI Traces → `analysis.skipSegment` (replaces CLI `--full-frame`)
+- Parallel stages (segment / traces / auc / fit) always use `os.cpu_count()` workers; traces writes each CSV as soon as that position finishes
+- Analysis stages (`traces` / `auc` / `fit`) write `analysis/PosN/*.csv` from `roi/` + `assay.json` interval/channels/maxOnset. They do **not** require `samples[]`. Plot *services* (`run_plot_*`) require `samples[]` and write PNG only. Table packs (`traces.xlsx` / `auc.xlsx` / `fit.xlsx`) come from `publish_sample_traces_xlsx` / `publish_sample_tables_xlsx`; CLI `plot-*` and pipeline call those then plot.
 
 ### ROI crop (not in this package)
 
@@ -112,9 +113,9 @@ Stage order:
 crop → roi/
 
 # this package (needs roi/):
-# analysis (sample-agnostic) then plot/results (named samples[]):
-segment → timeseries → auc → fit
-plot-timeseries → plot-auc → plot-fit
+# analysis (sample-agnostic) then plot/results (samples[]):
+segment → traces → auc → fit
+plot-traces → plot-auc → plot-fit
 # or pipeline, which runs both in that order
 ```
 
@@ -124,16 +125,16 @@ plot-timeseries → plot-auc → plot-fit
 | --- | --- |
 | `assay.json` | **Required** experiment config (schema below) |
 | `bbox/PosN.csv` | Site boxes from Aligner. Folders and bbox CSV columns are defined in lisca (`docs/analysis/schema.md`); this package imports `lisca` for read. |
-| `roi/PosN/` | Cropped ROI stacks + slim `index.json` (from pyama / `lisca-crop` / Studio; discovered via lisca path helpers). Always `axisOrder: "TCZYX"`; keep `zCount` (`1` if no z-stack). Stack shape is derived as `[timeCount, channelCount, zCount, bbox.h, bbox.w]`. Optional `timeIndices` lists source acquisition frame indices per T plane; timeseries CSV `t` uses these, then `t * interval` is real minutes. |
+| `roi/PosN/` | Cropped ROI stacks + slim `index.json` (from pyama / `lisca-crop` / Studio; discovered via lisca path helpers). Always `axisOrder: "TCZYX"`; keep `zCount` (`1` if no z-stack). Stack shape is derived as `[timeCount, channelCount, zCount, bbox.h, bbox.w]`. Optional `timeIndices` lists source acquisition Frames per T plane; Trace CSV `t` uses these, then `t * interval` is real minutes. |
 | `mask/PosN/` | Segmentation masks (written by `segment`) |
 | `analysis/` | Pipeline intermediates, **CSV only**. See **`docs/schema.md`**. Analysis stages do not require `samples[].name`. |
-| `results/<sample>/` | User-facing packs (filesystem-safe `samples[].name`; prefix `slideChannel` if names collide). XLSX + PNG; table columns in **`docs/schema.md`**. Shared-y companions use one ylim across all samples. No `*_log` or `area_summary`. Missing `samples[]` fails here, not during timeseries. |
+| `results/<sample>/` | User-facing packs (filesystem-safe `samples[].name`; prefix the 0-based assay index, `{index}_{name}`, if two names sanitize to the same folder). XLSX + PNG; table columns in **`docs/schema.md`**. Shared-y companions use one ylim across all samples. No `*_log` or `area_summary`. Missing `samples[]` fails here, not during traces. |
 | `results/*.png` | Cross-sample boxplots (samples on x), written once: `auc.png`, `expression_rate.png`, `onset_time.png`, `baseline_intensity.png`, `protein_lifetime.png`, `mrna_lifetime.png`. |
 
 Frozen on-disk tree (csv under `analysis/` only; xlsx + png under `results/`):
 
 ```
-analysis/PosN/{chC.csv,auc.csv,fit.csv}     # csv only; CLI verb still timeseries
+analysis/PosN/{chC.csv,auc.csv,fit.csv}     # csv only; chC.csv are the Traces
 results/
   auc.png expression_rate.png onset_time.png
   baseline_intensity.png protein_lifetime.png mrna_lifetime.png
@@ -147,7 +148,7 @@ results/
     expression_rate_vs_mrna_lifetime.png
 ```
 
-Hard no: `timeseries/` folder, combined results tables, csv under `results/`, `*_log` plots, `area_summary.png`, subplot grids.
+Hard no: `traces/` or `timeseries/` folder, combined results tables, csv under `results/`, `*_log` plots, `area_summary.png`, subplot grids.
 
 ## `assay.json` schema
 
@@ -162,15 +163,14 @@ Studio-compatible JSON object. Canonical Effect Schema: `@lisca/contracts` → `
 | `data.path` | string | no | Source path (crop tooling; unused by analysis stages) |
 | `interval.value` | number \| null | no (default **10** min) | Positive frame step |
 | `interval.unit` | `"second"` \| `"minute"` \| `"hour"` | no | Converted to minutes; default unit `minute` |
-| `samples` | array | **plot/results** | Named conditions. Analysis stages work without it (discover `roi/PosN` + `analysis.channels`). Missing or empty names fail at plot/results, not timeseries. |
-| `samples[].slideChannel` | int | **yes** when `samples` is present | Slide-channel key for grouping `analysis/` into `results/<sample>/` |
-| `samples[].name` | string | **plot/results** | Folder + plot label. Empty name is kept for analysis but skipped when grouping results. |
+| `samples` | array | **plot/results** | Samples (one experimental condition each), in display order. Analysis stages work without it (discover `roi/PosN` + `analysis.channels`). Missing `samples[]` fails at plot/results, not traces. |
+| `samples[].name` | string | **yes** when `samples` is present | Identifies the Sample: non-empty after trimming, unique within the assay. Folder + plot label; groups `analysis/` into `results/<sample>/`. |
 | `samples[].positions` | string | **yes** when `samples` is present | Position list/ranges (see below) |
-| `analysis.channels.mask` | int | **yes** | Default channel used for Otsu masks |
-| `analysis.channels.signal` | int[] | **yes** | Default intensity channel indices (non-empty; one timeseries CSV per channel) |
-| `analysis.sampleChannels` | array | no | Per-sample `{slideChannel, mask, signal}` overrides keyed by `slideChannel` |
+| `analysis.channels.segmentation` | int | **yes** | Default Segmentation channel (Otsu masks are computed from it) |
+| `analysis.channels.signal` | int[] | **yes** | Default intensity channel indices (non-empty; one Trace CSV per channel) |
+| `analysis.sampleChannels` | array | no | Per-sample `{sample, segmentation, signal}` overrides; `sample` must name a `samples[]` row, at most one row per sample |
 | `analysis.maxOnsetMinutes` | number | no | Fit **onset time** (\(t_0\)) search cap; default **`120`**; set `0` to fix onset at 0 |
-| `analysis.skipSegment` | boolean | no | When true, skip Otsu and use full-ROI p10 background timeseries |
+| `analysis.skipSegment` | boolean | no | When true, skip Otsu and use full-ROI p10 background Traces |
 
 ### Position strings
 
@@ -192,12 +192,10 @@ Comma-separated tokens. Ranges are **inclusive** on both ends (Studio semantics)
   "interval": { "value": 10, "unit": "minute" },
   "samples": [
     {
-      "slideChannel": 0,
       "name": "condA",
       "positions": "1:12"
     },
     {
-      "slideChannel": 1,
       "name": "condB",
       "positions": "13:24"
     }
@@ -205,9 +203,9 @@ Comma-separated tokens. Ranges are **inclusive** on both ends (Studio semantics)
   "analysis": {
     "maxOnsetMinutes": 120,
     "skipSegment": false,
-    "channels": { "mask": 0, "signal": [1] },
+    "channels": { "segmentation": 0, "signal": [1] },
     "sampleChannels": [
-      { "slideChannel": 1, "mask": 0, "signal": [1, 2] }
+      { "sample": "condB", "segmentation": 0, "signal": [1, 2] }
     ]
   }
 }

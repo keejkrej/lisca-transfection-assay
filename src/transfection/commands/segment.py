@@ -72,8 +72,8 @@ def segment(
         variation_radius=variation_radius,
         gaussian_sigma=gaussian_sigma,
         force=force,
-        on_mask_written=lambda slide_channel, output_dir, mask_count: typer.echo(
-            format_written_masks_message(slide_channel, output_dir, mask_count)
+        on_mask_written=lambda sample, output_dir, mask_count: typer.echo(
+            format_written_masks_message(sample, output_dir, mask_count)
         ),
     )
     if result.skipped_positions:

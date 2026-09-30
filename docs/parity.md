@@ -12,7 +12,7 @@ On a tiny synthetic workspace (`roi/` 4×4×4 T, 2 channels, one ROI, sample
 
 | Stage | Files | Typical relative tolerance |
 | --- | --- | --- |
-| Timeseries | `analysis/Pos1/ch1.csv` | `1e-6` |
+| Traces | `analysis/Pos1/ch1.csv` | `1e-6` |
 | AUC | `analysis/Pos1/auc.csv` | `1e-6` |
 | Kinetic fit | `analysis/Pos1/fit.csv` | `2e-2` vs Python CLI (grid-search / `lstsq` backends) |
 | Results tables | `results/condA/{traces,auc,fit}.xlsx` | same numeric columns as the analysis CSVs (xlsx values, not pixels) |
@@ -22,9 +22,9 @@ Plots are not pixel-compared. Crop / ND2 / CZI are out of scope.
 Smart-exclusion and SlimSAM stay in lisca. Optional ONNX pattern U-Net
 (`--features onnx`) is assay-owned; Otsu is the CSV-parity default.
 
-Analysis stages (`timeseries` / `auc` / `fit`) are sample-agnostic: they write
+Analysis stages (`traces` / `auc` / `fit`) are sample-agnostic: they write
 `analysis/PosN/*.csv` from `roi/` + `assay.json` interval/channels/maxOnset and
-do **not** require `samples[].name`. Plot *services* (`run_plot_*`) read those
+do **not** require `samples[]`. Plot *services* (`run_plot_*`) read those
 CSVs and write PNG only. `publish_sample_traces_xlsx` /
 `publish_sample_tables_xlsx` write `results/<sample>/*.xlsx`. CLI `plot-*` and
 pipeline call publish then plot so a one-shot still packs tables + plots.
@@ -112,7 +112,7 @@ to tables. Relative error `|a−b| / max(|a|,|b|,ε)`.
 lisca-transfection = { git = "https://github.com/keejkrej/lisca-transfection-assay" }
 ```
 
-Call `run_segment`, `run_timeseries`, `run_auc`, `run_fit`, `run_pipeline`
+Call `run_segment`, `run_traces`, `run_auc`, `run_fit`, `run_pipeline`
 (and `run_plot_*`) with a workspace path. Studio wire id remains
 `transfection`. For ONNX smart segment later, depend with
 `features = ["onnx"]` and set `LISCA_PATTERN_SEG_MODEL` (or ship

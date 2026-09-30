@@ -14,7 +14,7 @@ from transfection.services.check_segment import (
 
 NAME = "check-segment"
 HELP = (
-    "Overlay mask contours on ROI TIFF signal/mask channels and write MP4 review videos "
+    "Overlay mask contours on ROI TIFF signal/segmentation channels and write MP4 review videos "
     "under <workspace>/check-segment/PosN/. Manual QA only; not part of pipeline."
 )
 

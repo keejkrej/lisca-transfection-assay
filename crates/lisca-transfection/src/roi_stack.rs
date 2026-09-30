@@ -74,10 +74,7 @@ pub fn position_dir(workspace: &Path, pos: u32) -> Result<PathBuf, String> {
 pub fn discover_roi_positions(workspace: &Path) -> Result<Vec<u32>, String> {
     let roi_root = roi_dir(workspace);
     if !roi_root.is_dir() {
-        return Err(format!(
-            "Expected roi/ directory at {}",
-            roi_root.display()
-        ));
+        return Err(format!("Expected roi/ directory at {}", roi_root.display()));
     }
     let mut positions = Vec::new();
     for entry in std::fs::read_dir(&roi_root).map_err(|error| error.to_string())? {
@@ -97,10 +94,7 @@ pub fn discover_roi_positions(workspace: &Path) -> Result<Vec<u32>, String> {
     }
     positions.sort_unstable();
     if positions.is_empty() {
-        return Err(format!(
-            "No roi/PosN directories in {}",
-            roi_root.display()
-        ));
+        return Err(format!("No roi/PosN directories in {}", roi_root.display()));
     }
     Ok(positions)
 }
@@ -262,7 +256,7 @@ fn decode_page_to_f64(
 pub fn roi_frame_2d(
     stack: &RoiStack,
     axis_order: &str,
-    timepoint: u32,
+    frame_index: u32,
     channel: u32,
     z_index: u32,
 ) -> Result<Frame2D, String> {
@@ -283,12 +277,12 @@ pub fn roi_frame_2d(
         let size = stack.shape[axis_index];
         match axis {
             'T' => {
-                if timepoint as usize >= size {
+                if frame_index as usize >= size {
                     return Err(format!(
-                        "Time index {timepoint} out of range for axis size {size}"
+                        "Frame {frame_index} out of range for axis size {size}"
                     ));
                 }
-                fixed_indices[axis_index] = timepoint as usize;
+                fixed_indices[axis_index] = frame_index as usize;
             }
             'C' => {
                 if channel as usize >= size {

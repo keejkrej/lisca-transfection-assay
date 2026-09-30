@@ -17,8 +17,6 @@ def default_mask_path(
     workspace: Path,
     *,
     position: int,
-    slide_channel: int,
-    mask_channel: int,
     roi_file_name: str,
 ) -> Path:
     return (position_mask_dir(workspace, position) / Path(roi_file_name).name).resolve()

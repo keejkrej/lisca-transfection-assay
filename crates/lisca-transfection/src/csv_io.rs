@@ -3,10 +3,6 @@ use std::path::Path;
 
 use csv::WriterBuilder;
 
-pub fn write_csv(path: &Path, headers: &[&str], rows: &[Vec<String>]) -> Result<(), String> {
-    super::export::write_csv_and_xlsx(path, headers, rows)
-}
-
 pub fn write_csv_only(path: &Path, headers: &[&str], rows: &[Vec<String>]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -46,11 +42,6 @@ pub fn read_csv(path: &Path) -> Result<(Vec<String>, Vec<Vec<String>>), String> 
 
 pub fn column_index(headers: &[String], name: &str) -> Option<usize> {
     headers.iter().position(|header| header == name)
-}
-
-/// Accept Python `slide_channel` or legacy lisca `slide` column names.
-pub fn slide_channel_column_index(headers: &[String]) -> Option<usize> {
-    column_index(headers, "slide_channel").or_else(|| column_index(headers, "slide"))
 }
 
 pub fn parse_f64(raw: &str) -> Option<f64> {

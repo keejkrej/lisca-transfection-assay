@@ -11,7 +11,6 @@ PROG_NAME = "transfection"
 # Canonical schema is lisca (`docs/analysis/schema.md`). Import folder names
 # when lisca exports them; otherwise keep local strings that match lisca's tree.
 ANALYSIS_DIRNAME = getattr(_lisca_workspace, "ANALYSIS_DIRNAME", "analysis")
-TIMESERIES_DIRNAME = ANALYSIS_DIRNAME
 RESULTS_DIRNAME = getattr(_lisca_workspace, "RESULTS_DIRNAME", "results")
 DEFAULT_QUARTILES = "0.10,0.25,0.50,0.75,0.90"
 FIGURE_DPI = 100
