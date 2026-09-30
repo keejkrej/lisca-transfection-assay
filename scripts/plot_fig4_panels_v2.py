@@ -4,11 +4,11 @@
 Panels:
   A - GFP tile crop with bounding boxes
   B - single-cell GFP fluorescence time series with median trace
-  C - expression rate vs onset time (half-max proxy from timeseries), log-log
+  C - expression rate vs onset time (half-max proxy from the Traces), log-log
   D - expression rate vs mRNA lifetime, log-log
 
 Panel C replaces the (all-zero) onset_time / onset-time column from
-fit.csv with an onset time computed per cell from the timeseries: first time t
+fit.csv with an onset time computed per cell from the Traces: first time t
 (minutes) where the
 corrected fluorescence reaches 0.5 * max(corrected) for that cell.
 """
@@ -103,10 +103,10 @@ def log_percentile_limits(values: np.ndarray, lo: float = 1.0, hi: float = 99.0)
     return float(low), float(high)
 
 
-def select_background_traces(timeseries_df: pd.DataFrame, count: int = BACKGROUND_TRACE_COUNT) -> list[pd.DataFrame]:
+def select_background_traces(traces_df: pd.DataFrame, count: int = BACKGROUND_TRACE_COUNT) -> list[pd.DataFrame]:
     """Pick `count` traces spread across peak fluorescence for representative gray context."""
     ranked: list[tuple[float, pd.DataFrame]] = []
-    for _, trace in timeseries_df.groupby(["pos", "roi"], sort=True):
+    for _, trace in traces_df.groupby(["pos", "roi"], sort=True):
         values = trace["corrected"].astype(float).to_numpy(dtype=float)
         finite = values[np.isfinite(values)]
         peak = float(np.max(finite)) if finite.size else 0.0
@@ -118,11 +118,11 @@ def select_background_traces(timeseries_df: pd.DataFrame, count: int = BACKGROUN
     return [ranked[index][1] for index in pick]
 
 
-def position_image_path(workspace: Path, pos: int, timepoint: int) -> Path:
+def position_image_path(workspace: Path, pos: int, frame_index: int) -> Path:
     return (
         workspace
         / f"Pos{pos}"
-        / f"img_channel00{SIGNAL_CHANNEL}_position{pos:03d}_time{timepoint:09d}_z000.tif"
+        / f"img_channel00{SIGNAL_CHANNEL}_position{pos:03d}_time{frame_index:09d}_z000.tif"
     )
 
 
@@ -130,19 +130,19 @@ def load_bbox_table(workspace: Path, pos: int) -> pd.DataFrame:
     return pd.read_csv(workspace / "bbox" / f"Pos{pos}.csv")
 
 
-def _roi_plane(stack: np.ndarray, timepoint: int, channel: int) -> np.ndarray:
+def _roi_plane(stack: np.ndarray, frame_index: int, channel: int) -> np.ndarray:
     """Extract a 2D YX plane from an ROI stack (TCZYX, TCYX, or TYX)."""
     arr = np.asarray(stack)
     if arr.ndim == 5:  # T C Z Y X
-        t = min(timepoint, arr.shape[0] - 1)
+        t = min(frame_index, arr.shape[0] - 1)
         c = min(channel, arr.shape[1] - 1)
         return np.asarray(arr[t, c, 0], dtype=np.float32)
     if arr.ndim == 4:  # T C Y X
-        t = min(timepoint, arr.shape[0] - 1)
+        t = min(frame_index, arr.shape[0] - 1)
         c = min(channel, arr.shape[1] - 1)
         return np.asarray(arr[t, c], dtype=np.float32)
     if arr.ndim == 3:  # T Y X
-        t = min(timepoint, arr.shape[0] - 1)
+        t = min(frame_index, arr.shape[0] - 1)
         return np.asarray(arr[t], dtype=np.float32)
     if arr.ndim == 2:
         return np.asarray(arr, dtype=np.float32)
@@ -150,7 +150,7 @@ def _roi_plane(stack: np.ndarray, timepoint: int, channel: int) -> np.ndarray:
 
 
 def load_frame_from_rois(
-    workspace: Path, pos: int, timepoint: int, *, channel: int = SIGNAL_CHANNEL
+    workspace: Path, pos: int, frame_index: int, *, channel: int = SIGNAL_CHANNEL
 ) -> np.ndarray:
     """Composite a full field from roi/PosN crops when PosN tile TIFFs are absent."""
     index_path = workspace / "roi" / f"Pos{pos}" / "index.json"
@@ -164,18 +164,18 @@ def load_frame_from_rois(
         bbox = entry["bbox"]
         x0, y0, w, h = int(bbox["x"]), int(bbox["y"]), int(bbox["w"]), int(bbox["h"])
         plane = _roi_plane(
-            tifffile.imread(roi_dir / entry["fileName"]), timepoint, channel
+            tifffile.imread(roi_dir / entry["fileName"]), frame_index, channel
         )
         ph, pw = plane.shape
         frame[y0 : y0 + min(h, ph), x0 : x0 + min(w, pw)] = plane[:h, :w]
     return frame
 
 
-def load_position_frame(workspace: Path, pos: int, timepoint: int) -> np.ndarray:
-    image_path = position_image_path(workspace, pos, timepoint)
+def load_position_frame(workspace: Path, pos: int, frame_index: int) -> np.ndarray:
+    image_path = position_image_path(workspace, pos, frame_index)
     if image_path.is_file():
         return np.asarray(tifffile.imread(image_path), dtype=np.float32)
-    return load_frame_from_rois(workspace, pos, timepoint)
+    return load_frame_from_rois(workspace, pos, frame_index)
 
 def bbox_count_in_crop(
     bbox_df: pd.DataFrame, x0: int, y0: int, crop_w: int, crop_h: int
@@ -332,10 +332,10 @@ def plot_position_tile(
         )
 
 
-def plot_timeseries_panel(ax, timeseries_df: pd.DataFrame) -> None:
+def plot_traces_panel(ax, traces_df: pd.DataFrame) -> None:
     all_values: list[np.ndarray] = []
 
-    for trace in select_background_traces(timeseries_df):
+    for trace in select_background_traces(traces_df):
         values = trace["corrected"].astype(float).to_numpy(dtype=float)
         minutes = trace["t"].astype(float).to_numpy(dtype=float) * INTERVAL_MINUTES
         all_values.append(values)
@@ -349,7 +349,7 @@ def plot_timeseries_panel(ax, timeseries_df: pd.DataFrame) -> None:
         )
 
     median_trace = (
-        timeseries_df.groupby("t", as_index=False)["corrected"]
+        traces_df.groupby("t", as_index=False)["corrected"]
         .median()
         .sort_values("t")
     )
@@ -374,7 +374,7 @@ def plot_timeseries_panel(ax, timeseries_df: pd.DataFrame) -> None:
         pad = 0.05 * (y_high - y_low if y_high > y_low else max(abs(y_high), 1.0))
         ax.set_ylim(y_low - pad, y_high + pad)
 
-    ax.set_xlim(0.0, float(timeseries_df["t"].max() * INTERVAL_MINUTES))
+    ax.set_xlim(0.0, float(traces_df["t"].max() * INTERVAL_MINUTES))
     ax.set_ylabel("eGFP fluorescence (a.u.)", fontsize=AXIS_LABEL_FONT)
     ax.set_xlabel("time (min)", fontsize=AXIS_LABEL_FONT)
     style_plot_axes(ax)
@@ -427,10 +427,10 @@ def plot_log_scatter_with_marginals(
         show_all_spines(marginal_ax)
 
 
-def compute_onset_minutes(timeseries_df: pd.DataFrame) -> pd.DataFrame:
+def compute_onset_minutes(traces_df: pd.DataFrame) -> pd.DataFrame:
     """Per-cell onset time (t0 proxy): first t (min) where corrected >= 0.5 * max."""
     records = []
-    for (pos, roi), trace in timeseries_df.groupby(["pos", "roi"], sort=True):
+    for (pos, roi), trace in traces_df.groupby(["pos", "roi"], sort=True):
         corrected = trace["corrected"].astype(float).to_numpy(dtype=float)
         timesteps = trace["t"].astype(float).to_numpy(dtype=float)
         finite_mask = np.isfinite(corrected)
@@ -515,19 +515,19 @@ def render_figure(
     grid_index: int | None = DEFAULT_GRID_INDEX,
     x_shift_frac: float = DEFAULT_X_SHIFT_FRAC,
     fit_csv: Path | None = None,
-    timeseries_csv: Path | None = None,
+    traces_csv: Path | None = None,
 ) -> tuple[Path, Path]:
     workspace = workspace.resolve()
     fit_path = fit_csv or (workspace / "results" / "fit.csv")
-    ts_path = timeseries_csv or (workspace / "timeseries" / "sc0_ch1.csv")
+    ts_path = traces_csv or (workspace / "timeseries" / "sc0_ch1.csv")
     fit_df = pd.read_csv(fit_path)
-    timeseries_df = pd.read_csv(ts_path)
+    traces_df = pd.read_csv(ts_path)
 
-    # Restrict fit rows to cells present in the plotted timeseries sample.
-    ts_keys = timeseries_df[["pos", "roi"]].drop_duplicates()
+    # Restrict fit rows to cells present in the plotted Trace sample.
+    ts_keys = traces_df[["pos", "roi"]].drop_duplicates()
     fit_df = fit_df.merge(ts_keys, on=["pos", "roi"], how="inner")
 
-    onset_df = compute_onset_minutes(timeseries_df)
+    onset_df = compute_onset_minutes(traces_df)
 
     fig = plt.figure(figsize=(19.0, 5.6))
     grid = fig.add_gridspec(
@@ -546,7 +546,7 @@ def render_figure(
         grid_index=grid_index,
         x_shift_frac=x_shift_frac,
     )
-    plot_timeseries_panel(ax_b, timeseries_df)
+    plot_traces_panel(ax_b, traces_df)
     plot_onset_correlation_panel(ax_c, fit_df, onset_df)
     plot_lifetime_correlation_panel(ax_d, fit_df)
 
@@ -615,7 +615,7 @@ def main() -> None:
         help="Randomize panel a position and 1/3×1/3 crop region.",
     )
     parser.add_argument("--fit-csv", type=Path, default=None)
-    parser.add_argument("--timeseries-csv", type=Path, default=None)
+    parser.add_argument("--traces-csv", type=Path, default=None)
     args = parser.parse_args()
 
     position = args.pos
@@ -639,7 +639,7 @@ def main() -> None:
         grid_index=grid_index,
         x_shift_frac=args.x_shift_frac,
         fit_csv=args.fit_csv,
-        timeseries_csv=args.timeseries_csv,
+        traces_csv=args.traces_csv,
     )
     if args.shuffle:
         print(f"Panel a: Pos{position}, crop grid index {grid_index}")

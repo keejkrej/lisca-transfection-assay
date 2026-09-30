@@ -8,11 +8,11 @@ from pathlib import Path
 from transfection.core import (
     load_assay_for_workspace,
     require_interval_minutes,
-    require_named_samples,
+    require_samples,
 )
 from transfection.core.constants import ANALYSIS_DIRNAME, RESULTS_DIRNAME
 from transfection.core.sample_pack import publish_sample_tables_xlsx, publish_sample_traces_xlsx
-from transfection.services import auc, fit, plot_auc, plot_fit, plot_timeseries, segment, timeseries
+from transfection.services import auc, fit, plot_auc, plot_fit, plot_traces, segment, traces
 
 
 @dataclass(frozen=True)
@@ -47,7 +47,7 @@ def run_pipeline(
             gaussian_sigma=gaussian_sigma,
             force=force,
         )
-    timeseries.run_timeseries(
+    traces.run_traces(
         workspace=workspace,
         mapping=config.mapping or None,
         skip_segment=skip_segment,
@@ -58,9 +58,9 @@ def run_pipeline(
         interval=interval,
         max_onset_minutes=max_onset,
     )
-    mapping = require_named_samples(config)
+    mapping = require_samples(config)
     publish_sample_traces_xlsx(workspace, mapping)
-    plot_timeseries.run_plot_timeseries(
+    plot_traces.run_plot_traces(
         metrics_dir=workspace,
         interval=interval,
     )

@@ -9,7 +9,7 @@ from transfection.app import app
 from transfection.core import (
     infer_workspace_root,
     load_assay_for_workspace,
-    require_named_samples,
+    require_samples,
     resolve_interval_minutes,
 )
 from transfection.core.sample_pack import publish_sample_tables_xlsx
@@ -73,7 +73,7 @@ def plot_fit(
 ) -> None:
     workspace = infer_workspace_root(fit_csv)
     config = load_assay_for_workspace(workspace, assay)
-    mapping = require_named_samples(config)
+    mapping = require_samples(config)
     for path in publish_sample_tables_xlsx(workspace, mapping, "fit"):
         typer.echo(f"Wrote table: {path}")
     resolved = resolve_interval_minutes(workspace, assay=assay, override=interval)

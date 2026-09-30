@@ -11,8 +11,8 @@ import pandas as pd
 from transfection import core as paths
 from transfection.core import (
     load_assay_for_workspace,
-    load_timeseries_csv,
-    parse_timeseries_csv_path,
+    load_trace_csv,
+    parse_trace_path,
 )
 from transfection.core.export import write_csv_only
 from transfection.core.kinetics import LN2, half_life_minutes
@@ -60,7 +60,7 @@ class FitResult:
 
 
 def run_fit_with_jobs(
-    timeseries_csvs: list[Path],
+    trace_csvs: list[Path],
     *,
     interval: float,
     output_csv: Path | None,
@@ -73,7 +73,7 @@ def run_fit_with_jobs(
         raise ValueError(f"--max-onset-minutes must be >= 0, got {max_onset_minutes}")
 
     resolved_csvs = sorted(
-        (csv_path.resolve() for csv_path in timeseries_csvs),
+        (csv_path.resolve() for csv_path in trace_csvs),
         key=lambda path: (path.parent.name, path.name),
     )
     fit_df = compute_fit_table(
@@ -90,13 +90,13 @@ def run_fit_with_jobs(
 
 
 def integrate_fit_csvs(
-    timeseries_csvs: list[Path],
+    trace_csvs: list[Path],
     *,
     interval: float,
     output_csv: Path | None,
 ) -> list[Path]:
     return run_fit_with_jobs(
-        timeseries_csvs,
+        trace_csvs,
         interval=interval,
         output_csv=output_csv,
         max_onset_minutes=0.0,
@@ -361,15 +361,15 @@ def derive_parameters(result: FitResult) -> dict[str, float]:
 
 
 def compute_fit_table(
-    timeseries_csvs: list[Path],
+    trace_csvs: list[Path],
     *,
     interval: float,
     max_onset_minutes: float | None = 0.0,
 ) -> pd.DataFrame:
     tasks: list[tuple[int, int, dict[str, int], list[float], list[float], float]] = []
-    for csv_path in timeseries_csvs:
-        df = load_timeseries_csv(csv_path)
-        position, signal_channel = parse_timeseries_csv_path(csv_path)
+    for csv_path in trace_csvs:
+        df = load_trace_csv(csv_path)
+        position, signal_channel = parse_trace_path(csv_path)
         if "roi" not in df.columns:
             raise ValueError(f"{csv_path} has no roi column")
 
@@ -501,9 +501,9 @@ def run_fit(
     max_onset_minutes: float = 0.0,
     assay: Path | None = None,
 ) -> list[Path]:
-    timeseries_csvs = paths.discover_timeseries_csvs(paths.workspace_timeseries_dir(workspace))
+    trace_csvs = paths.discover_trace_csvs(paths.workspace_analysis_dir(workspace))
     return run_fit_with_jobs(
-        timeseries_csvs,
+        trace_csvs,
         interval=interval,
         output_csv=None,
         max_onset_minutes=max_onset_minutes,

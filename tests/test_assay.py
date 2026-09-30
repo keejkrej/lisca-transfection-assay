@@ -9,13 +9,13 @@ import pytest
 
 from transfection.core.assay import (
     MISSING_SAMPLES_FOR_PLOT,
-    build_slide_mapping_from_assay,
     load_assay,
+    load_assay_for_workspace,
     parse_interval_minutes,
     require_interval_minutes,
-    require_named_samples,
+    require_samples,
 )
-from transfection.core.slide import parse_position_spec
+from transfection.core.sample import build_sample_mapping, parse_position_spec
 
 
 def test_positions_inclusive_ranges() -> None:
@@ -26,37 +26,91 @@ def test_positions_inclusive_ranges() -> None:
 
 
 def test_build_mapping_from_assay_channels() -> None:
-    mapping = build_slide_mapping_from_assay(
+    mapping = build_sample_mapping(
         [
-            {
-                "slideChannel": 0,
-                "name": "condA",
-                "positions": "10:11",
-            },
-            {
-                "slideChannel": 1,
-                "name": "  ",
-                "positions": "1",
-            },
-            {
-                "slideChannel": 1,
-                "name": "condB",
-                "positions": "20",
-            },
+            {"name": "condA", "positions": "10:11"},
+            {"name": " condB ", "positions": "20"},
         ],
         {
-            "channels": {"mask": 0, "signal": [2]},
-            "sampleChannels": [{"slideChannel": 1, "mask": 0, "signal": [1, 3]}],
+            "channels": {"segmentation": 0, "signal": [2]},
+            "sampleChannels": [{"sample": "condB", "segmentation": 1, "signal": [1, 3]}],
         },
         source="test",
     )
-    assert list(mapping.keys()) == [0, 1]
-    assert mapping[0].positions == [10, 11]
-    assert mapping[0].signal_channels == [2]
-    assert mapping[0].sample_name == "condA"
-    assert mapping[1].positions == [20]
-    assert mapping[1].signal_channels == [1, 3]
-    assert mapping[1].sample_name == "condB"
+    assert list(mapping.keys()) == ["condA", "condB"]
+    assert mapping["condA"].name == "condA"
+    assert mapping["condA"].positions == [10, 11]
+    assert mapping["condA"].signal_channels == [2]
+    assert mapping["condA"].segmentation_channel == 0
+    assert mapping["condB"].name == "condB"
+    assert mapping["condB"].positions == [20]
+    assert mapping["condB"].signal_channels == [1, 3]
+    assert mapping["condB"].segmentation_channel == 1
+
+
+def test_mapping_preserves_assay_order() -> None:
+    mapping = build_sample_mapping(
+        [
+            {"name": "zeta", "positions": "1"},
+            {"name": "alpha", "positions": "2"},
+            {"name": "mid", "positions": "3"},
+        ],
+        {"channels": {"segmentation": 0, "signal": [1]}},
+        source="test",
+    )
+    assert list(mapping.keys()) == ["zeta", "alpha", "mid"]
+
+
+@pytest.mark.parametrize("name", ["", "   ", None])
+def test_blank_sample_name_rejected(name: object) -> None:
+    row: dict = {"positions": "1"}
+    if name is not None:
+        row["name"] = name
+    with pytest.raises(ValueError, match=r"samples\[1\]: sample name must be non-empty"):
+        build_sample_mapping(
+            [{"name": "condA", "positions": "2"}, row],
+            {"channels": {"segmentation": 0, "signal": [1]}},
+            source="test",
+        )
+
+
+def test_duplicate_sample_names_rejected() -> None:
+    with pytest.raises(ValueError, match=r"duplicate sample name 'WT' in samples\[\]"):
+        build_sample_mapping(
+            [
+                {"name": "WT", "positions": "1"},
+                {"name": " WT ", "positions": "2"},
+            ],
+            {"channels": {"segmentation": 0, "signal": [1]}},
+            source="test",
+        )
+
+
+def test_unknown_sample_channels_sample_rejected() -> None:
+    with pytest.raises(ValueError, match="analysis.sampleChannels: unknown sample 'ghost'"):
+        build_sample_mapping(
+            [{"name": "condA", "positions": "1"}],
+            {
+                "channels": {"segmentation": 0, "signal": [1]},
+                "sampleChannels": [{"sample": "ghost", "segmentation": 0, "signal": [2]}],
+            },
+            source="test",
+        )
+
+
+def test_duplicate_sample_channels_row_rejected() -> None:
+    with pytest.raises(ValueError, match="analysis.sampleChannels: duplicate sample 'condA'"):
+        build_sample_mapping(
+            [{"name": "condA", "positions": "1"}],
+            {
+                "channels": {"segmentation": 0, "signal": [1]},
+                "sampleChannels": [
+                    {"sample": "condA", "segmentation": 0, "signal": [2]},
+                    {"sample": "condA", "segmentation": 0, "signal": [3]},
+                ],
+            },
+            source="test",
+        )
 
 
 def _minimal_assay(**overrides: object) -> dict:
@@ -66,16 +120,10 @@ def _minimal_assay(**overrides: object) -> dict:
         "data": {"type": "nd2", "path": ""},
         "workspace": {"path": ""},
         "interval": {"value": 10, "unit": "minute"},
-        "samples": [
-            {
-                "slideChannel": 0,
-                "name": "condA",
-                "positions": "1",
-            }
-        ],
+        "samples": [{"name": "condA", "positions": "1"}],
         "analysis": {
             "maxOnsetMinutes": 30,
-            "channels": {"mask": 0, "signal": [1]},
+            "channels": {"segmentation": 0, "signal": [1]},
         },
     }
     payload.update(overrides)
@@ -91,7 +139,8 @@ def test_load_assay_json(tmp_path: Path) -> None:
     assert config.interval_minutes == 10.0
     assert config.max_onset_minutes == 30.0
     assert config.skip_segment is False
-    assert config.mapping[0].signal_channels == [1]
+    assert config.segmentation_channel == 0
+    assert config.mapping["condA"].signal_channels == [1]
     assert require_interval_minutes(config) == 10.0
     assert require_interval_minutes(config, override=5.0) == 5.0
 
@@ -104,7 +153,7 @@ def test_skip_segment_from_analysis(tmp_path: Path) -> None:
                 analysis={
                     "maxOnsetMinutes": 30,
                     "skipSegment": True,
-                    "channels": {"mask": 0, "signal": [1]},
+                    "channels": {"segmentation": 0, "signal": [1]},
                 }
             )
         ),
@@ -119,7 +168,7 @@ def test_default_max_onset_when_analysis_omitted_channels_required(tmp_path: Pat
 
     path = tmp_path / "assay.json"
     assay = _minimal_assay()
-    assay["analysis"] = {"channels": {"mask": 0, "signal": [1]}}
+    assay["analysis"] = {"channels": {"segmentation": 0, "signal": [1]}}
     assay["interval"] = {"value": None, "unit": "minute"}
     path.write_text(json.dumps(assay), encoding="utf-8")
 
@@ -142,34 +191,27 @@ def test_missing_samples_ok_for_analysis(tmp_path: Path) -> None:
         json.dumps(
             {
                 "type": "transfection",
-                "analysis": {"channels": {"mask": 0, "signal": [1]}},
+                "analysis": {"channels": {"segmentation": 0, "signal": [1]}},
             }
         ),
         encoding="utf-8",
     )
     config = load_assay(path)
     assert config.mapping == {}
-    with pytest.raises(ValueError, match="plot/results stages require"):
-        require_named_samples(config)
+    with pytest.raises(ValueError, match="plot/results stages require") as exc:
+        require_samples(config)
+    assert "traces, auc, and fit do not need samples" in str(exc.value)
+    assert "traces, auc, and fit do not need samples" in MISSING_SAMPLES_FOR_PLOT
 
 
-def test_empty_sample_names_ok_for_analysis_not_plot(tmp_path: Path) -> None:
+def test_blank_sample_name_in_assay_file_rejected(tmp_path: Path) -> None:
     path = tmp_path / "assay.json"
     path.write_text(
-        json.dumps(
-            _minimal_assay(
-                samples=[{"slideChannel": 0, "name": "", "positions": "1"}],
-            )
-        ),
+        json.dumps(_minimal_assay(samples=[{"name": "", "positions": "1"}])),
         encoding="utf-8",
     )
-    config = load_assay(path)
-    assert config.mapping[0].sample_name == ""
-    assert config.mapping[0].positions == [1]
-    with pytest.raises(ValueError, match="plot/results stages require") as exc:
-        require_named_samples(config)
-    assert "timeseries, auc, and fit do not" in str(exc.value)
-    assert "need sample names" in MISSING_SAMPLES_FOR_PLOT
+    with pytest.raises(ValueError, match="sample name must be non-empty"):
+        load_assay(path)
 
 
 def test_missing_channels_errors(tmp_path: Path) -> None:
@@ -179,3 +221,32 @@ def test_missing_channels_errors(tmp_path: Path) -> None:
     path.write_text(json.dumps(assay), encoding="utf-8")
     with pytest.raises(ValueError, match="missing analysis.channels"):
         load_assay(path)
+
+
+def test_load_assay_for_workspace_reads_current_shape(tmp_path: Path) -> None:
+    (tmp_path / "assay.json").write_text(json.dumps(_minimal_assay()), encoding="utf-8")
+    config = load_assay_for_workspace(tmp_path)
+    assert list(config.mapping) == ["condA"]
+    assert config.segmentation_channel == 0
+
+
+def test_load_assay_for_workspace_migrates_old_shape(tmp_path: Path) -> None:
+    pytest.importorskip("lisca.migrations.assay_samples_by_name")
+    old = _minimal_assay(
+        samples=[
+            {"slideChannel": 0, "name": "condA", "positions": "1"},
+            {"slideChannel": 1, "name": "condB", "positions": "2"},
+        ],
+        analysis={
+            "channels": {"mask": 0, "signal": [1]},
+            "sampleChannels": [{"slideChannel": 1, "mask": 2, "signal": [3]}],
+        },
+    )
+    (tmp_path / "assay.json").write_text(json.dumps(old), encoding="utf-8")
+    config = load_assay_for_workspace(tmp_path)
+    assert list(config.mapping) == ["condA", "condB"]
+    assert config.mapping["condB"].segmentation_channel == 2
+    assert config.mapping["condB"].signal_channels == [3]
+    migrated = json.loads((tmp_path / "assay.json").read_text(encoding="utf-8"))
+    assert "slideChannel" not in migrated["samples"][0]
+    assert migrated["analysis"]["channels"] == {"segmentation": 0, "signal": [1]}

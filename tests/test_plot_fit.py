@@ -95,7 +95,7 @@ def test_log_joint_limits_always_positive() -> None:
 def _fit_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
-            "slide_channel": [0, 0],
+            "sample": ["condA", "condA"],
             "pos": [1, 1],
             "roi": [1, 2],
             "success": [True, True],
@@ -111,7 +111,6 @@ def test_write_expression_rate_vs_onset_scatter_creates_png(tmp_path: Path) -> N
     write_expression_rate_vs_onset_scatter(
         _fit_df(),
         output,
-        slide_channel_names={0: "condA"},
     )
     assert output.is_file()
     assert output.stat().st_size > 0
@@ -122,7 +121,6 @@ def test_write_expression_rate_vs_mrna_lifetime_scatter_creates_png(tmp_path: Pa
     write_expression_rate_vs_mrna_lifetime_scatter(
         _fit_df(),
         output,
-        slide_channel_names={0: "condA"},
     )
     assert output.is_file()
     assert output.stat().st_size > 0
@@ -160,7 +158,7 @@ def test_log_joint_figure_uses_log_axes() -> None:
 def test_write_expression_rate_vs_onset_scatter_requires_successful_rows(tmp_path: Path) -> None:
     df = pd.DataFrame(
         {
-            "slide_channel": [0],
+            "sample": ["condA"],
             "pos": [1],
             "roi": [1],
             "success": [False],
@@ -172,14 +170,13 @@ def test_write_expression_rate_vs_onset_scatter_requires_successful_rows(tmp_pat
         write_expression_rate_vs_onset_scatter(
             df,
             tmp_path / "expression_rate_vs_onset_time.png",
-            slide_channel_names={0: "condA"},
         )
 
 
 def test_write_joint_scatter_drops_non_positive_points(tmp_path: Path) -> None:
     df = pd.DataFrame(
         {
-            "slide_channel": [0, 0],
+            "sample": ["condA", "condA"],
             "pos": [1, 1],
             "roi": [1, 2],
             "success": [True, True],
@@ -191,7 +188,6 @@ def test_write_joint_scatter_drops_non_positive_points(tmp_path: Path) -> None:
     write_expression_rate_vs_onset_scatter(
         df,
         output,
-        slide_channel_names={0: "condA"},
     )
     assert output.is_file()
 
@@ -199,7 +195,7 @@ def test_write_joint_scatter_drops_non_positive_points(tmp_path: Path) -> None:
 def test_write_joint_scatter_requires_positive_values(tmp_path: Path) -> None:
     df = pd.DataFrame(
         {
-            "slide_channel": [0],
+            "sample": ["condA"],
             "pos": [1],
             "roi": [1],
             "success": [True],
@@ -211,7 +207,6 @@ def test_write_joint_scatter_requires_positive_values(tmp_path: Path) -> None:
         write_expression_rate_vs_onset_scatter(
             df,
             tmp_path / "expression_rate_vs_onset_time.png",
-            slide_channel_names={0: "condA"},
         )
 
 

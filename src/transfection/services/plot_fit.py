@@ -12,13 +12,12 @@ import pandas as pd
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from transfection import core as plot_layout
-from transfection.services import plot_timeseries
+from transfection.services import plot_traces
 from transfection.core import (
     boxplot_tick_labels,
-    boxplot_x_axis_label,
     infer_workspace_root,
     load_assay_for_workspace,
-    require_named_samples,
+    require_samples,
     trace_color_alpha_from_fluor_name,
     workspace_results_dir,
 )
@@ -36,7 +35,6 @@ from transfection.core.kinetics import (
 from transfection.core.sample_pack import (
     concat_sample_tables,
     concat_sample_traces,
-    labels_from_sample_column,
     sample_pack_dir,
     sample_pack_dirnames,
 )
@@ -93,26 +91,25 @@ def run_plot_fit(
         raise ValueError(f"--interval must be > 0, got {interval}")
     workspace = infer_workspace_root(fit_csv)
     config = load_assay_for_workspace(workspace)
-    mapping = require_named_samples(config)
+    mapping = require_samples(config)
     tables = concat_sample_tables(workspace, mapping, "fit")
     traces = concat_sample_traces(workspace, mapping)
     dirnames = sample_pack_dirnames(mapping)
-    names = {sc: entry.sample_name for sc, entry in mapping.items()}
     written_paths: list[Path] = []
     loaded_tables: list[pd.DataFrame] = []
     _ = columns
     corrected_arrays = [
-        plot_timeseries.panel_values(table, "corrected")
+        plot_traces.panel_values(table, "corrected")
         for table in traces.values()
         if table is not None and not table.empty and "corrected" in table.columns
     ]
     shared_fit_ylim = (
-        plot_timeseries.percentile_ylim(np.concatenate(corrected_arrays))
+        plot_traces.percentile_ylim(np.concatenate(corrected_arrays))
         if corrected_arrays
         else None
     )
-    for slide_channel, table in tables.items():
-        dirname = dirnames.get(slide_channel)
+    for sample, table in tables.items():
+        dirname = dirnames.get(sample)
         if dirname is None:
             continue
         dest_dir = sample_pack_dir(workspace, dirname)
@@ -120,14 +117,12 @@ def run_plot_fit(
             dest_dir = output.resolve()
         df = load_fit_table(table)
         loaded_tables.append(df)
-        names_for_sample = {**names, **labels_from_sample_column(df)}
         written_paths.extend(
             write_fitted_trace_plots(
                 df,
                 dest_dir / "traces_fit.png",
                 interval=interval,
-                slide_channel_names=names_for_sample,
-                traces_df=traces.get(slide_channel),
+                traces_df=traces.get(sample),
                 shared_ylim=shared_fit_ylim,
             )
         )
@@ -140,7 +135,6 @@ def run_plot_fit(
             xlabel=ONSET_TIME_AXIS_LABEL,
             ylabel=EXPRESSION_RATE_AXIS_LABEL,
             empty_message="No successful finite positive fits available to plot expression rate vs onset time",
-            slide_channel_names=names_for_sample,
             missing_ok=True,
             x_as_hours=True,
         ):
@@ -154,14 +148,12 @@ def run_plot_fit(
             xlabel=MRNA_LIFETIME_AXIS_LABEL,
             ylabel=EXPRESSION_RATE_AXIS_LABEL,
             empty_message="No successful finite positive fits available to plot expression rate vs mRNA lifetime",
-            slide_channel_names=names_for_sample,
             missing_ok=True,
             x_as_hours=True,
         ):
             written_paths.append(lifetime_scatter)
     if loaded_tables:
         combined = pd.concat(loaded_tables, ignore_index=True)
-        names_all = {**names, **labels_from_sample_column(combined)}
         results_dir = workspace_results_dir(workspace)
         for parameter, label, as_hours in PLOTTED_PARAMETERS:
             output_plot = results_dir / f"{parameter}.png"
@@ -170,7 +162,6 @@ def run_plot_fit(
                 parameter=parameter,
                 ylabel=label,
                 output_plot=output_plot,
-                slide_channel_names=names_all,
                 log_scale=False,
                 as_hours=as_hours,
             )
@@ -183,9 +174,9 @@ def run_plot_fit(
 def load_fit_table(df: pd.DataFrame) -> pd.DataFrame:
     keep_columns = [column for column in df.columns]
     out = df.loc[:, keep_columns].copy()
-    if "slide_channel" in out.columns:
-        out = out.dropna(subset=["slide_channel"])
-        out["slide_channel"] = out["slide_channel"].astype(int)
+    if "sample" in out.columns:
+        out = out.dropna(subset=["sample"])
+        out["sample"] = out["sample"].astype(str)
     if out.empty:
         raise ValueError("fit table has no rows")
 
@@ -201,8 +192,8 @@ def load_fit_table(df: pd.DataFrame) -> pd.DataFrame:
     for parameter in (*FIT_TABLE_PARAMETERS, *FIT_TRACE_PARAMETERS):
         if parameter in out.columns:
             out[parameter] = pd.to_numeric(out[parameter], errors="coerce")
-    sort_columns = [column for column in ("slide_channel", "pos", "roi") if column in out.columns]
-    return out.sort_values(sort_columns).reset_index(drop=True)
+    sort_columns = [column for column in ("pos", "roi") if column in out.columns]
+    return out.sort_values(sort_columns, kind="stable").reset_index(drop=True)
 
 
 def _series_or_none(df: pd.DataFrame, name: str) -> pd.Series | None:
@@ -296,7 +287,6 @@ def write_fit_boxplot(
     parameter: str,
     ylabel: str,
     output_plot: Path,
-    slide_channel_names: dict[int, str],
     log_scale: bool,
     as_hours: bool = False,
 ) -> None:
@@ -308,23 +298,24 @@ def write_fit_boxplot(
     if parameter_df.empty:
         raise ValueError(f"No finite rows available to plot parameter {parameter!r}")
 
-    slide_channels = sorted(parameter_df["slide_channel"].unique().tolist())
+    # Boxes in first-seen order (assay order when concatenated from sample tables).
+    samples = [str(sample) for sample in pd.unique(parameter_df["sample"])]
     trace_counts = [
-        int(parameter_df.loc[parameter_df["slide_channel"] == slide_channel, parameter].shape[0])
-        for slide_channel in slide_channels
+        int(parameter_df.loc[parameter_df["sample"] == sample, parameter].shape[0])
+        for sample in samples
     ]
     grouped_values = [
-        parameter_df.loc[parameter_df["slide_channel"] == slide_channel, parameter].to_numpy(dtype=float)
-        for slide_channel in slide_channels
+        parameter_df.loc[parameter_df["sample"] == sample, parameter].to_numpy(dtype=float)
+        for sample in samples
     ]
 
     fig, ax = plt.subplots(figsize=plot_layout.FIGURE_SIZE_SINGLE_IN)
     ax.boxplot(
         grouped_values,
-        tick_labels=boxplot_tick_labels(slide_channels, trace_counts, slide_channel_names),
+        tick_labels=boxplot_tick_labels(samples, trace_counts),
     )
 
-    ax.set_xlabel(boxplot_x_axis_label(slide_channel_names))
+    ax.set_xlabel("sample")
     ax.set_ylabel(ylabel)
     ax.tick_params(axis="x", labelrotation=45)
     for label in ax.get_xticklabels():
@@ -333,7 +324,7 @@ def write_fit_boxplot(
         ax.set_yscale("log")
     else:
         arrays = [values for values in grouped_values if values.size]
-        y_low, y_high = plot_timeseries.percentile_ylim(
+        y_low, y_high = plot_traces.percentile_ylim(
             np.concatenate(arrays) if arrays else np.array([])
         )
         ax.set_ylim(y_low, y_high)
@@ -414,17 +405,12 @@ def _show_all_spines(ax: plt.Axes, *, color: str = "black", linewidth: float = 0
         ax.spines[side].set_linewidth(linewidth)
 
 
-def _scatter_title_color(
-    scatter_df: pd.DataFrame,
-    slide_channel_names: dict[int, str],
-) -> tuple[str, str]:
-    if "slide_channel" in scatter_df.columns:
-        slide_channel = int(scatter_df["slide_channel"].iloc[0])
-        label = slide_channel_names.get(slide_channel, f"slide channel {slide_channel}")
-        title = plot_timeseries.subplot_title(slide_channel, slide_channel_names=slide_channel_names)
+def _scatter_title_color(scatter_df: pd.DataFrame) -> tuple[str, str]:
+    if "sample" in scatter_df.columns and not scatter_df.empty:
+        label = str(scatter_df["sample"].iloc[0])
     else:
-        label = next(iter(slide_channel_names.values()), "sample")
-        title = label
+        label = "sample"
+    title = plot_traces.subplot_title(label)
     color, _trace_alpha = trace_color_alpha_from_fluor_name(label)
     return title, color
 
@@ -513,7 +499,6 @@ def _write_kinetic_joint_scatter(
     xlabel: str,
     ylabel: str,
     empty_message: str,
-    slide_channel_names: dict[int, str],
     missing_ok: bool = False,
     x_as_hours: bool = False,
 ) -> bool:
@@ -528,7 +513,7 @@ def _write_kinetic_joint_scatter(
         if missing_ok:
             return False
         raise ValueError(empty_message)
-    title, color = _scatter_title_color(scatter_df, slide_channel_names)
+    title, color = _scatter_title_color(scatter_df)
     write_log_joint_scatter(
         x,
         y,
@@ -545,7 +530,6 @@ def write_expression_rate_vs_onset_scatter(
     df: pd.DataFrame,
     output_plot: Path,
     *,
-    slide_channel_names: dict[int, str],
     columns: int | None = None,
 ) -> None:
     _ = columns
@@ -557,7 +541,6 @@ def write_expression_rate_vs_onset_scatter(
         xlabel=ONSET_TIME_AXIS_LABEL,
         ylabel=EXPRESSION_RATE_AXIS_LABEL,
         empty_message="No successful finite positive fits available to plot expression rate vs onset time",
-        slide_channel_names=slide_channel_names,
         x_as_hours=True,
     )
 
@@ -566,7 +549,6 @@ def write_expression_rate_vs_mrna_lifetime_scatter(
     df: pd.DataFrame,
     output_plot: Path,
     *,
-    slide_channel_names: dict[int, str],
     columns: int | None = None,
 ) -> None:
     _ = columns
@@ -578,7 +560,6 @@ def write_expression_rate_vs_mrna_lifetime_scatter(
         xlabel=MRNA_LIFETIME_AXIS_LABEL,
         ylabel=EXPRESSION_RATE_AXIS_LABEL,
         empty_message="No successful finite positive fits available to plot expression rate vs mRNA lifetime",
-        slide_channel_names=slide_channel_names,
         x_as_hours=True,
     )
 
@@ -629,7 +610,6 @@ def write_fitted_trace_plots(
     output_plot: Path,
     *,
     interval: float,
-    slide_channel_names: dict[int, str],
     traces_df: pd.DataFrame | None,
     shared_ylim: tuple[float, float] | None = None,
 ) -> list[Path]:
@@ -637,24 +617,22 @@ def write_fitted_trace_plots(
     if traces_df is None or traces_df.empty:
         raise ValueError("No analysis traces matched this sample for traces_fit")
     df = traces_df.reset_index(drop=True)
-    ylim = plot_timeseries.percentile_ylim(plot_timeseries.panel_values(df, "corrected"))
+    ylim = plot_traces.percentile_ylim(plot_traces.panel_values(df, "corrected"))
     write_fitted_trace_panel(
         fit_df,
         df,
         output_plot,
         interval=interval,
-        slide_channel_names=slide_channel_names,
         ylim=ylim,
     )
     written = [output_plot]
     if shared_ylim is not None:
-        shared_plot = plot_timeseries.metric_shared_y_output_path(output_plot)
+        shared_plot = plot_traces.metric_shared_y_output_path(output_plot)
         write_fitted_trace_panel(
             fit_df,
             df,
             shared_plot,
             interval=interval,
-            slide_channel_names=slide_channel_names,
             ylim=shared_ylim,
         )
         written.append(shared_plot)
@@ -667,16 +645,15 @@ def write_fitted_trace_panel(
     output_plot: Path,
     *,
     interval: float,
-    slide_channel_names: dict[int, str],
     ylim: tuple[float, float],
 ) -> None:
     fig, ax = plt.subplots(figsize=plot_layout.FIGURE_SIZE_SINGLE_IN)
-    if "slide_channel" in traces_df.columns:
-        slide_channel = int(traces_df["slide_channel"].dropna().iloc[0])
-    elif "slide_channel" in fit_df.columns:
-        slide_channel = int(fit_df["slide_channel"].dropna().iloc[0])
+    if "sample" in traces_df.columns:
+        sample = str(traces_df["sample"].dropna().iloc[0])
+    elif "sample" in fit_df.columns:
+        sample = str(fit_df["sample"].dropna().iloc[0])
     else:
-        slide_channel = next(iter(slide_channel_names), 0)
+        sample = "sample"
     lookup_cols = [column for column in ("pos", "roi") if column in fit_df.columns]
     if "roi" not in lookup_cols:
         raise ValueError("fit table is missing roi")
@@ -687,14 +664,14 @@ def write_fitted_trace_panel(
     )
     frames = [(output_plot, traces_df)]
     trace_color, trace_alpha = trace_color_alpha_from_fluor_name(
-        plot_timeseries.trace_naming_haystack(slide_channel, frames, slide_channel_names)
+        plot_traces.trace_naming_haystack(sample, frames)
     )
     matched_traces = 0
-    trace_groups = traces_df.groupby(plot_timeseries.trace_group_columns(traces_df), sort=True, dropna=False)
+    trace_groups = traces_df.groupby(plot_traces.trace_group_columns(traces_df), sort=True, dropna=False)
     for group_key, trace_df in trace_groups:
         if not isinstance(group_key, tuple):
             group_key = (group_key,)
-        group_values = dict(zip(plot_timeseries.trace_group_columns(traces_df), group_key, strict=True))
+        group_values = dict(zip(plot_traces.trace_group_columns(traces_df), group_key, strict=True))
         pos = int(group_values["pos"]) if "pos" in group_values else None
         roi = int(group_values["roi"])
         if "pos" in lookup_cols and pos is not None:
@@ -713,14 +690,10 @@ def write_fitted_trace_panel(
 
     if matched_traces == 0:
         plt.close(fig)
-        raise ValueError("No successful fit rows matched the inferred timeseries CSVs")
+        raise ValueError("No successful fit rows matched the sample Traces")
 
     ax.set_title(
-        plot_timeseries.subplot_title(
-            slide_channel,
-            matched_traces,
-            slide_channel_names=slide_channel_names,
-        )
+        plot_traces.subplot_title(sample, matched_traces)
     )
     ax.set_xlabel("time (min)")
     ax.set_ylabel("intensity")

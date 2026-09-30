@@ -8,10 +8,10 @@ import numpy as np
 import pandas as pd
 
 from transfection.core import (
-    discover_timeseries_csvs,
-    load_timeseries_csv,
-    parse_timeseries_csv_path,
-    workspace_timeseries_dir,
+    discover_trace_csvs,
+    load_trace_csv,
+    parse_trace_path,
+    workspace_analysis_dir,
     write_csv_only,
 )
 from transfection.core.parallel import worker_count
@@ -68,14 +68,14 @@ def _run_auc_tasks(tasks: list[AucTraceTask]) -> list[dict[str, object]]:
 
 
 def compute_auc_table(
-    timeseries_csvs: list[Path],
+    trace_csvs: list[Path],
     *,
     interval: float,
 ) -> pd.DataFrame:
     tasks: list[AucTraceTask] = []
-    for csv_path in timeseries_csvs:
-        df = load_timeseries_csv(csv_path)
-        position, signal_channel = parse_timeseries_csv_path(csv_path)
+    for csv_path in trace_csvs:
+        df = load_trace_csv(csv_path)
+        position, signal_channel = parse_trace_path(csv_path)
         group_columns = [column for column in ("roi",) if column in df.columns]
         if not group_columns:
             raise ValueError(f"{csv_path} has no roi column")
@@ -124,8 +124,8 @@ def format_written_auc_csv_message(output_csvs: list[Path]) -> str:
 def run_auc(*, workspace: Path, interval: float, assay: Path | None = None) -> list[Path]:
     if interval <= 0:
         raise ValueError(f"--interval must be > 0, got {interval}")
-    timeseries_csvs = discover_timeseries_csvs(workspace_timeseries_dir(workspace))
-    auc_df = compute_auc_table(timeseries_csvs, interval=interval)
+    trace_csvs = discover_trace_csvs(workspace_analysis_dir(workspace))
+    auc_df = compute_auc_table(trace_csvs, interval=interval)
     written = _write_position_auc_tables(auc_df, workspace=workspace)
     if not written:
         raise ValueError("No AUC rows produced")

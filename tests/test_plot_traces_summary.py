@@ -3,13 +3,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from transfection.services.plot_timeseries import (
+from transfection.services.plot_traces import (
     metric_shared_y_output_path,
     percentile_ylim,
     sample_summary_curves,
     summary_output_path,
     write_metric_plots,
-    write_sample_timeseries_plots,
+    write_sample_traces_plots,
 )
 
 
@@ -66,7 +66,7 @@ def test_write_metric_plots_emits_summary_variants(tmp_path: Path) -> None:
             "area": [10.0, 11.0, 12.0, 13.0],
         }
     )
-    sample_panels = [(0, [(tmp_path / "Pos1" / "ch0.csv", df)])]
+    sample_panels = [("condA", [(tmp_path / "Pos1" / "ch0.csv", df)])]
     output_plot = tmp_path / "results" / "traces.png"
     written = write_metric_plots(
         sample_panels,
@@ -75,7 +75,6 @@ def test_write_metric_plots_emits_summary_variants(tmp_path: Path) -> None:
         y_label="intensity",
         interval=10.0,
         columns=1,
-        slide_channel_names={0: "condA"},
         shared_ylim=(0.0, 10.0),
         shared_summary_ylim=(0.0, 10.0),
     )
@@ -91,7 +90,7 @@ def test_write_metric_plots_emits_summary_variants(tmp_path: Path) -> None:
         assert path.stat().st_size > 0
 
 
-def test_write_sample_timeseries_plots_frozen_set(tmp_path: Path) -> None:
+def test_write_sample_traces_plots_frozen_set(tmp_path: Path) -> None:
     df = pd.DataFrame(
         {
             "roi": [0, 0, 1, 1],
@@ -100,14 +99,13 @@ def test_write_sample_timeseries_plots_frozen_set(tmp_path: Path) -> None:
             "area": [10.0, 11.0, 12.0, 13.0],
         }
     )
-    sample_panels = [(0, [(tmp_path / "Pos1" / "ch0.csv", df)])]
+    sample_panels = [("condA", [(tmp_path / "Pos1" / "ch0.csv", df)])]
     output_plot = tmp_path / "results" / "condA" / "traces.png"
-    written = write_sample_timeseries_plots(
+    written = write_sample_traces_plots(
         sample_panels,
         output_plot,
         interval=10.0,
         columns=1,
-        slide_channel_names={0: "condA"},
         shared_ylim=(0.0, 10.0),
         shared_summary_ylim=(0.0, 10.0),
         shared_area_ylim=(0.0, 20.0),

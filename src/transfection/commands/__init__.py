@@ -7,9 +7,9 @@ from transfection.commands import (
     pipeline,
     plot_auc,
     plot_fit,
-    plot_timeseries,
+    plot_traces,
     segment,
-    timeseries,
+    traces,
 )
 
 __all__ = [
@@ -19,7 +19,7 @@ __all__ = [
     "pipeline",
     "plot_auc",
     "plot_fit",
-    "plot_timeseries",
+    "plot_traces",
     "segment",
-    "timeseries",
+    "traces",
 ]

@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from transfection.core.assay import load_assay_for_workspace, require_interval_minutes
+from transfection.core.workspace import default_position_trace_csv_path
 from transfection.core.roi import (
     position_dir,
     read_position_index,
@@ -181,7 +182,7 @@ def _select_rois(
     assay = load_assay_for_workspace(workspace)
     selected: list[SelectedRoi] = []
     overrides = overrides or {}
-    known_samples = {entry.sample_name for entry in assay.mapping.values()}
+    known_samples = set(assay.mapping)
     unknown = set(overrides) - known_samples
     if unknown:
         raise ValueError(
@@ -189,39 +190,38 @@ def _select_rois(
             f"known: {sorted(known_samples)}"
         )
 
-    # Preserve assay sample order
-    ordered = sorted(assay.mapping.items(), key=lambda kv: min(kv[1].positions))
-    for _slide_ch, entry in ordered:
+    # The mapping is already in assay sample order.
+    for entry in assay.mapping.values():
         signal_channel = (
             channel_override if channel_override is not None else entry.signal_channels[0]
         )
-        if entry.sample_name in overrides:
-            pos, best_roi = overrides[entry.sample_name]
+        if entry.name in overrides:
+            pos, best_roi = overrides[entry.name]
             if pos not in entry.positions:
                 raise ValueError(
-                    f"{entry.sample_name}: forced Pos{pos} is not in sample positions "
+                    f"{entry.name}: forced Pos{pos} is not in sample positions "
                     f"{entry.positions[0]}…{entry.positions[-1]}"
                 )
-            metrics_path = workspace / "timeseries" / f"Pos{pos}" / f"ch{signal_channel}.csv"
+            metrics_path = default_position_trace_csv_path(workspace, pos, signal_channel)
             if not metrics_path.is_file():
                 raise FileNotFoundError(
-                    f"{entry.sample_name}: missing timeseries {metrics_path}"
+                    f"{entry.name}: missing Traces {metrics_path}"
                 )
             df = pd.read_csv(metrics_path)
             if df.empty:
                 raise ValueError(f"{metrics_path} is empty")
             if best_roi not in set(df["roi"].astype(int)):
-                raise ValueError(f"{entry.sample_name}: Roi{best_roi} not in {metrics_path}")
+                raise ValueError(f"{entry.name}: Roi{best_roi} not in {metrics_path}")
             scores = _score_rois(df, pick)
             score = float(scores.loc[best_roi]) if best_roi in scores.index else float("nan")
             reason = "forced"
         else:
             pos = _pick_position(entry.positions, position_mode)
-            metrics_path = workspace / "timeseries" / f"Pos{pos}" / f"ch{signal_channel}.csv"
+            metrics_path = default_position_trace_csv_path(workspace, pos, signal_channel)
             if not metrics_path.is_file():
                 raise FileNotFoundError(
-                    f"{entry.sample_name}: missing timeseries {metrics_path} "
-                    "(run transfection timeseries first, or pass a position that has metrics)"
+                    f"{entry.name}: missing Traces {metrics_path} "
+                    "(run transfection traces first, or pass a position that has metrics)"
                 )
             df = pd.read_csv(metrics_path)
             if df.empty:
@@ -233,7 +233,7 @@ def _select_rois(
 
         selected.append(
             SelectedRoi(
-                sample=entry.sample_name,
+                sample=entry.name,
                 position=pos,
                 roi=best_roi,
                 signal_channel=signal_channel,
@@ -317,10 +317,10 @@ def _load_frames(
         for label, t, hours in time_labels:
             if t >= index.time_count:
                 raise ValueError(
-                    f"Pos{pick.position}: time index {t} out of range (timeCount={index.time_count})"
+                    f"Pos{pick.position}: frame {t} out of range (timeCount={index.time_count})"
                 )
             frame = roi_frame_2d(
-                stack, index.axis_order, timepoint=t, channel=pick.signal_channel
+                stack, index.axis_order, frame=t, channel=pick.signal_channel
             )
             frames.append((pick, label, t, hours, frame.astype(np.float64, copy=False)))
     return frames, time_labels

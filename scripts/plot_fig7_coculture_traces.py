@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""mCherry timeseries per patch and cell type for coculture fig7 datasets.
+"""mCherry Traces per patch and cell type for coculture fig7 datasets.
 
 Cell types are separated within each patch using brightfield segmentation and
 YFP thresholding (channel 1). Type A is YFP-negative (blue traces); type B is
@@ -25,7 +25,7 @@ from transfection.core.segment import otsu_threshold, segment_frame
 BF_CHANNEL = 0
 YFP_CHANNEL = 1
 MCHERRY_CHANNEL = 2
-REFERENCE_TIMEPOINT = 10
+REFERENCE_FRAME = 10
 INTERVAL_MINUTES = 10.0
 VARIATION_RADIUS = 5
 GAUSSIAN_SIGMA = 2.0
@@ -61,13 +61,13 @@ def patch_type_masks(
     stack: np.ndarray,
     index,
     *,
-    reference_timepoint: int = REFERENCE_TIMEPOINT,
+    reference_frame: int = REFERENCE_FRAME,
 ) -> tuple[np.ndarray | None, np.ndarray | None]:
     bf = roi_frame_2d(
-        stack, index.axis_order, timepoint=reference_timepoint, channel=BF_CHANNEL
+        stack, index.axis_order, frame=reference_frame, channel=BF_CHANNEL
     ).astype(np.float64)
     yfp = roi_frame_2d(
-        stack, index.axis_order, timepoint=reference_timepoint, channel=YFP_CHANNEL
+        stack, index.axis_order, frame=reference_frame, channel=YFP_CHANNEL
     ).astype(np.float64)
     foreground = segment_frame(
         bf,
@@ -94,9 +94,9 @@ def corrected_trace(
 ) -> list[dict[str, float | int]]:
     rows: list[dict[str, float | int]] = []
     area = int(mask.sum())
-    for timepoint in range(index.time_count):
+    for frame_index in range(index.time_count):
         frame = roi_frame_2d(
-            stack, index.axis_order, timepoint=timepoint, channel=channel
+            stack, index.axis_order, frame=frame_index, channel=channel
         ).astype(np.float64)
         foreground = frame[mask]
         background_pixels = frame[~mask]
@@ -108,7 +108,7 @@ def corrected_trace(
         )
         rows.append(
             {
-                "t": timepoint,
+                "t": frame_index,
                 "area": area,
                 "background": background,
                 "intensity": intensity,
@@ -118,7 +118,7 @@ def corrected_trace(
     return rows
 
 
-def extract_coculture_timeseries(workspace: Path) -> pd.DataFrame:
+def extract_coculture_traces(workspace: Path) -> pd.DataFrame:
     rows: list[dict[str, float | int | str]] = []
     for position in discover_positions(workspace):
         pos_dir = workspace / "roi" / f"Pos{position}"
@@ -146,7 +146,7 @@ def extract_coculture_timeseries(workspace: Path) -> pd.DataFrame:
     )
 
 
-def default_timeseries_csv(workspace: Path) -> Path:
+def default_traces_csv(workspace: Path) -> Path:
     return workspace / "timeseries" / "coculture_mcherry_by_cell_type.csv"
 
 
@@ -237,7 +237,7 @@ def main() -> None:
         help="Output PNG path (default: <workspace>/results/coculture_mcherry_traces.png).",
     )
     parser.add_argument(
-        "--timeseries-csv",
+        "--traces-csv",
         type=Path,
         default=None,
         help="Output CSV path (default: <workspace>/timeseries/coculture_mcherry_by_cell_type.csv).",
@@ -251,12 +251,12 @@ def main() -> None:
     args = parser.parse_args()
 
     workspace = args.workspace.resolve()
-    timeseries_csv = args.timeseries_csv or default_timeseries_csv(workspace)
+    traces_csv = args.traces_csv or default_traces_csv(workspace)
     output_plot = args.output or default_output_plot(workspace)
 
-    df = extract_coculture_timeseries(workspace)
-    timeseries_csv.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(timeseries_csv, index=False)
+    df = extract_coculture_traces(workspace)
+    traces_csv.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(traces_csv, index=False)
 
     written_plot = plot_coculture_traces(
         df,
@@ -270,7 +270,7 @@ def main() -> None:
         .shape[0]
         for cell_type in (TYPE_A, TYPE_B)
     }
-    print(f"Wrote timeseries CSV: {timeseries_csv}")
+    print(f"Wrote traces CSV: {traces_csv}")
     print(
         f"Trace counts — type A (YFP−): {trace_counts[TYPE_A]}, "
         f"type B (YFP+): {trace_counts[TYPE_B]}"

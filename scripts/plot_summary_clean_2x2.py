@@ -23,15 +23,14 @@ from matplotlib.patches import Patch
 
 from transfection import core as paths
 from transfection.core import (
-    discover_timeseries_csvs,
-    infer_workspace_for_timeseries_dir,
+    discover_trace_csvs,
+    infer_workspace_for_analysis_dir,
     load_assay_for_workspace,
-    load_slide_channel_labels,
-    load_timeseries_csv,
+    load_trace_csv,
     require_interval_minutes,
     trace_color_alpha_from_fluor_name,
 )
-from transfection.services import plot_timeseries as pts
+from transfection.services import plot_traces as pts
 
 # Large unified axis labels (figure-level).
 LABEL_FONTSIZE = 28
@@ -46,14 +45,13 @@ DPI = 200
 
 
 def load_sample_panels(workspace: Path):
-    ts_dir = workspace / paths.TIMESERIES_DIRNAME
+    analysis_dir = workspace / paths.ANALYSIS_DIRNAME
     config = load_assay_for_workspace(workspace)
-    csvs = discover_timeseries_csvs(ts_dir)
-    panels = [(csv_path, load_timeseries_csv(csv_path)) for csv_path in csvs]
-    sample_panels = pts.group_panels_by_slide_channel(panels, config.mapping)
-    names = load_slide_channel_labels(workspace)
+    csvs = discover_trace_csvs(analysis_dir)
+    panels = [(csv_path, load_trace_csv(csv_path)) for csv_path in csvs]
+    sample_panels = pts.group_panels_by_sample(panels, config.mapping)
     interval = require_interval_minutes(config, override=None)
-    return sample_panels, names, interval
+    return sample_panels, interval
 
 
 def style_clean_axes(ax: plt.Axes) -> None:
@@ -81,7 +79,6 @@ def write_clean_2x2_summary(
     sample_panels,
     *,
     interval: float,
-    slide_channel_names: dict[int, str],
     output: Path,
     y_column: str = "corrected",
 ) -> Path:
@@ -118,11 +115,11 @@ def write_clean_2x2_summary(
     fig.subplots_adjust(left=0.12, right=0.97, bottom=0.12, top=0.90, wspace=0.12, hspace=0.14)
 
     legend_handles: list | None = None
-    for ax, ((slide_channel, frames), summary) in zip(
+    for ax, ((sample, frames), summary) in zip(
         axes.flat, zip(sample_panels, summaries, strict=True), strict=True
     ):
         color, _ = trace_color_alpha_from_fluor_name(
-            pts.trace_naming_haystack(slide_channel, frames, slide_channel_names)
+            pts.trace_naming_haystack(sample, frames)
         )
         if summary is None:
             style_clean_axes(ax)
@@ -211,7 +208,7 @@ def main() -> None:
         type=Path,
         nargs="?",
         default=Path(r"C:\Users\ctyja\data\20260731"),
-        help="Workspace with timeseries/ + assay.json (default: 20260731 data).",
+        help="Workspace with analysis/ + assay.json (default: 20260731 data).",
     )
     parser.add_argument(
         "--output",
@@ -223,17 +220,16 @@ def main() -> None:
     args = parser.parse_args()
 
     workspace = args.workspace.expanduser().resolve()
-    if (workspace / paths.TIMESERIES_DIRNAME).is_dir():
+    if (workspace / paths.ANALYSIS_DIRNAME).is_dir():
         ws = workspace
     else:
-        ws = infer_workspace_for_timeseries_dir(workspace)
+        ws = infer_workspace_for_analysis_dir(workspace)
 
-    sample_panels, names, interval = load_sample_panels(ws)
+    sample_panels, interval = load_sample_panels(ws)
     output = args.output or (ws / paths.RESULTS_DIRNAME / "traces_summary_clean.png")
     written = write_clean_2x2_summary(
         sample_panels,
         interval=interval,
-        slide_channel_names=names,
         output=output,
     )
     print(f"Wrote clean 2×2 summary: {written}")
