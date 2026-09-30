@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::slide::parse_interval_minutes;
+use crate::sample::parse_interval_minutes;
 
 /// Default frame interval (minutes) when assay.json omits a positive `interval.value`.
 pub const DEFAULT_INTERVAL_MINUTES: f64 = 10.0;
@@ -88,16 +88,16 @@ pub struct AssayAnalysisConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AssayChannels {
-    pub mask: u32,
+    pub segmentation: u32,
     pub signal: AssaySignalChannels,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AssaySampleChannels {
-    pub mask: u32,
+    /// Name of the overridden sample (`samples[].name`).
+    pub sample: String,
+    pub segmentation: u32,
     pub signal: AssaySignalChannels,
-    #[serde(rename = "slideChannel")]
-    pub slide_channel: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -105,8 +105,6 @@ pub struct AssaySampleRow {
     #[serde(default)]
     pub name: String,
     pub positions: String,
-    #[serde(rename = "slideChannel")]
-    pub slide_channel: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -166,10 +164,11 @@ pub fn load_assay_for_workspace(
 /// Resolve frame interval. Prefers assay.json `interval.value`/`interval.unit`.
 /// When missing, uses the transfection default (10 min).
 pub fn interval_minutes(assay_json: &AssayJsonFile) -> Result<f64, String> {
-    Ok(
-        parse_interval_minutes(assay_json.interval.value, Some(assay_json.interval.unit.as_str()))
-            .unwrap_or(DEFAULT_INTERVAL_MINUTES),
+    Ok(parse_interval_minutes(
+        assay_json.interval.value,
+        Some(assay_json.interval.unit.as_str()),
     )
+    .unwrap_or(DEFAULT_INTERVAL_MINUTES))
 }
 
 /// Second-pass onset-time search cap. `0` means onset fixed at 0.
@@ -181,7 +180,7 @@ pub fn max_onset_minutes(assay_json: &AssayJsonFile) -> f64 {
         .unwrap_or(DEFAULT_MAX_ONSET_MINUTES)
 }
 
-/// Skip Otsu masks and use whole-ROI p10-background timeseries.
+/// Skip Otsu masks and use whole-ROI p10-background traces.
 pub fn skip_segment(assay_json: &AssayJsonFile) -> bool {
     assay_json
         .analysis
@@ -190,12 +189,12 @@ pub fn skip_segment(assay_json: &AssayJsonFile) -> bool {
         .unwrap_or(false)
 }
 
-pub fn analysis_mask_channel(assay_json: &AssayJsonFile) -> Result<u32, String> {
+pub fn analysis_segmentation_channel(assay_json: &AssayJsonFile) -> Result<u32, String> {
     assay_json
         .analysis
         .as_ref()
         .and_then(|analysis| analysis.channels.as_ref())
-        .map(|channels| channels.mask)
+        .map(|channels| channels.segmentation)
         .ok_or_else(|| "missing analysis.channels".to_string())
 }
 
@@ -232,8 +231,8 @@ mod tests {
             "workspace": { "path": "/tmp" },
             "data": { "type": "nd2", "path": "" },
             "interval": { "value": 10, "unit": "minute" },
-            "samples": [{ "slideChannel": 0, "name": "condA", "positions": "1:3" }],
-            "analysis": { "channels": { "mask": 0, "signal": [1] }, "maxOnsetMinutes": 30 }
+            "samples": [{ "name": "condA", "positions": "1:3" }],
+            "analysis": { "channels": { "segmentation": 0, "signal": [1] }, "maxOnsetMinutes": 30 }
         }"#;
         let assay: AssayJsonFile = serde_json::from_str(json).unwrap();
         assert_eq!(assay.type_, "transfection");
@@ -247,8 +246,8 @@ mod tests {
     #[test]
     fn defaults_interval_when_omitted() {
         let json = r#"{
-            "samples": [{ "slideChannel": 0, "name": "condA", "positions": "1" }],
-            "analysis": { "channels": { "mask": 0, "signal": [1] } }
+            "samples": [{ "name": "condA", "positions": "1" }],
+            "analysis": { "channels": { "segmentation": 0, "signal": [1] } }
         }"#;
         let assay: AssayJsonFile = serde_json::from_str(json).unwrap();
         assert_eq!(assay.type_, "transfection");
@@ -260,11 +259,11 @@ mod tests {
     fn missing_samples_still_exposes_analysis_channels() {
         let json = r#"{
             "type": "transfection",
-            "analysis": { "channels": { "mask": 0, "signal": [1, 2] } }
+            "analysis": { "channels": { "segmentation": 0, "signal": [1, 2] } }
         }"#;
         let assay: AssayJsonFile = serde_json::from_str(json).unwrap();
         assert!(assay.samples.is_empty());
-        assert_eq!(analysis_mask_channel(&assay).unwrap(), 0);
+        assert_eq!(analysis_segmentation_channel(&assay).unwrap(), 0);
         assert_eq!(analysis_signal_channels(&assay).unwrap(), vec![1, 2]);
     }
 }

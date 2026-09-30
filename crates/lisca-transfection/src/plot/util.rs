@@ -2,16 +2,25 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::array::percentile;
-use crate::slide::SlideMapping;
+use crate::sample::SampleMapping;
 
 /// Historical CLI default when callers pass an explicit `--columns` (unused).
 pub const DEFAULT_PLOT_COLUMNS: usize = 3;
 
-pub fn slide_channel_labels(mapping: &SlideMapping) -> BTreeMap<u32, String> {
+/// Sample names keyed by Sample index (assay order).
+pub fn sample_labels(mapping: &SampleMapping) -> BTreeMap<usize, String> {
     mapping
         .iter()
-        .map(|(channel, entry)| (*channel, entry.sample_name.clone()))
+        .enumerate()
+        .map(|(index, sample)| (index, sample.name.clone()))
         .collect()
+}
+
+fn sample_label(sample: usize, mapping: &SampleMapping) -> String {
+    mapping
+        .get(sample)
+        .map(|entry| entry.name.clone())
+        .unwrap_or_else(|| format!("sample {sample}"))
 }
 
 /// Y-limits: ``low_margin * p_lo`` … ``p_hi / high_margin``.
@@ -97,29 +106,17 @@ pub fn expand_degenerate_ylim(low: f64, high: f64) -> (f64, f64) {
     (low - pad, high + pad)
 }
 
-pub fn sample_subplot_title(
-    slide_channel: u32,
-    trace_count: usize,
-    mapping: &SlideMapping,
-) -> String {
-    let labels = slide_channel_labels(mapping);
-    let label = labels
-        .get(&slide_channel)
-        .cloned()
-        .unwrap_or_else(|| format!("slide channel {slide_channel}"));
+pub fn sample_subplot_title(sample: usize, trace_count: usize, mapping: &SampleMapping) -> String {
+    let label = sample_label(sample, mapping);
     format!("{label} ({trace_count} traces)")
 }
 
 pub fn sample_trace_naming_haystack(
-    slide_channel: u32,
+    sample: usize,
     paths: &[PathBuf],
-    mapping: &SlideMapping,
+    mapping: &SampleMapping,
 ) -> String {
-    let labels = slide_channel_labels(mapping);
-    let mut parts = vec![labels
-        .get(&slide_channel)
-        .cloned()
-        .unwrap_or_else(|| format!("slide channel {slide_channel}"))];
+    let mut parts = vec![sample_label(sample, mapping)];
     for path in paths {
         if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
             parts.push(name.to_string());
@@ -144,21 +141,17 @@ pub fn trace_color_alpha(haystack: &str) -> (&'static str, f64) {
     (color, 0.1)
 }
 
-pub fn boxplot_tick_label(channel: u32, count: usize, labels: &BTreeMap<u32, String>) -> String {
+pub fn boxplot_tick_label(sample: usize, count: usize, labels: &BTreeMap<usize, String>) -> String {
     let name = labels
-        .get(&channel)
+        .get(&sample)
         .cloned()
-        .unwrap_or_else(|| channel.to_string());
+        .unwrap_or_else(|| format!("sample {sample}"));
     // Single line so vertical tick labels stay readable when rotated.
     format!("{name} (n={count})")
 }
 
-pub fn boxplot_x_axis_label(labels: &BTreeMap<u32, String>) -> &'static str {
-    if labels.is_empty() {
-        "slide channel"
-    } else {
-        "sample"
-    }
+pub fn boxplot_x_axis_label() -> &'static str {
+    "sample"
 }
 
 pub fn quartile_axis_upper(grouped_values: &[Vec<f64>]) -> f64 {

@@ -1,6 +1,6 @@
 //! Transfection analysis CLI for parity with the Python `transfection` package.
 //!
-//! Stage commands mirror `transfection segment|timeseries|auc|fit|plot-*|pipeline`
+//! Stage commands mirror `transfection segment|traces|auc|fit|plot-*|pipeline`
 //! so the same workspace can be driven from either tool and outputs compared.
 //!
 //! ```text
@@ -18,12 +18,12 @@ use std::process;
 use std::time::Instant;
 
 use lisca_transfection::assay::AssayJsonFile;
-use lisca_transfection::slide::{load_mapping_for_workspace, resolve_assay_path};
+use lisca_transfection::sample::{load_mapping_for_workspace, resolve_assay_path};
 use lisca_transfection::{
-    default_fit_jobs, default_jobs, default_timeseries_jobs, interval_minutes, max_onset_minutes,
-    publish_sample_tables_xlsx, publish_sample_traces_xlsx, require_named_samples, run_auc,
-    run_fit, run_plot_auc, run_plot_fit, run_plot_timeseries, run_segment, run_sync_with_mode,
-    run_timeseries_with_mode, skip_segment, SegmentBackend, SegmentOptions, ANALYSIS_DIRNAME,
+    default_fit_jobs, default_jobs, default_traces_jobs, interval_minutes, max_onset_minutes,
+    publish_sample_tables_xlsx, publish_sample_traces_xlsx, require_samples, run_auc, run_fit,
+    run_plot_auc, run_plot_fit, run_plot_traces, run_segment, run_sync_with_mode,
+    run_traces_with_mode, skip_segment, SegmentBackend, SegmentOptions, ANALYSIS_DIRNAME,
 };
 
 fn main() {
@@ -44,10 +44,10 @@ fn run() -> Result<(), String> {
     let rest = &args[1..];
     match command {
         "segment" => cmd_segment(rest),
-        "timeseries" => cmd_timeseries(rest),
+        "traces" => cmd_traces(rest),
         "auc" => cmd_auc(rest),
         "fit" => cmd_fit(rest),
-        "plot-timeseries" => cmd_plot_timeseries(rest),
+        "plot-traces" => cmd_plot_traces(rest),
         "plot-auc" => cmd_plot_auc(rest),
         "plot-fit" => cmd_plot_fit(rest),
         "pipeline" | "analyze" | "all" => cmd_pipeline(rest),
@@ -67,10 +67,10 @@ Usage:
 
 Commands (same stage names as `transfection`):
   segment           Masks → mask/PosN/ (Otsu default; --backend onnx with --features onnx)
-  timeseries        Intensity metrics → analysis/Pos{{n}}/ch{{n}}.csv (CSV only; sample names not required)
-  auc               Trapezoidal AUC → analysis/PosN/auc.csv (CSV only; sample names not required)
-  fit               Two-exponential kinetic fit → analysis/PosN/fit.csv (CSV only; sample names not required)
-  plot-timeseries   Read analysis/ traces; write results/<sample>/traces.xlsx + traces.png /
+  traces            Intensity traces → analysis/Pos{{n}}/ch{{n}}.csv (CSV only; samples not required)
+  auc               Trapezoidal AUC → analysis/PosN/auc.csv (CSV only; samples not required)
+  fit               Two-exponential kinetic fit → analysis/PosN/fit.csv (CSV only; samples not required)
+  plot-traces       Read analysis/ traces; write results/<sample>/traces.xlsx + traces.png /
                     traces_shared_y.png / traces_summary.png / traces_summary_shared_y.png /
                     area.png / area_shared_y.png
   plot-auc          Read analysis/ auc.csv; write results/<sample>/auc.xlsx + results/auc.png
@@ -78,7 +78,7 @@ Commands (same stage names as `transfection`):
                     traces_fit_shared_y.png, expression_rate_vs_onset_time.png,
                     expression_rate_vs_mrna_lifetime.png, and
                     cross-sample boxplots at results/
-  pipeline          Analysis stages then plot stages (plot requires samples[].name)
+  pipeline          Analysis stages then plot stages (plot requires samples[])
                     (aliases: analyze, all)
 
 Common options:
@@ -86,7 +86,7 @@ Common options:
   --interval MINUTES      frame interval (default: assay.json interval.value/unit)
   --max-onset-minutes N   fit onset search cap (default: assay analysis.maxOnsetMinutes
                           or 120; 0 = onset fixed at 0)
-  (timeseries/pipeline whole-ROI mode is controlled by assay.json
+  (traces/pipeline whole-ROI mode is controlled by assay.json
    analysis.skipSegment, not a CLI flag)
   --variation-radius N    segment local-variation radius (default: 2)
   --gaussian-sigma F      segment Gaussian sigma (default: 1.0)
@@ -147,23 +147,23 @@ fn cmd_segment(args: &[String]) -> Result<(), String> {
     timed("segment", || run_segment(&workspace, &mapping, &options))
 }
 
-fn cmd_timeseries(args: &[String]) -> Result<(), String> {
+fn cmd_traces(args: &[String]) -> Result<(), String> {
     reject_removed_jobs_flag(args)?;
     let workspace = require_workspace(args)?;
     let assay = flag_path(args, "--assay");
     let mapping = load_mapping_for_workspace(&workspace, assay.as_deref())?;
-    let jobs = default_timeseries_jobs();
+    let jobs = default_traces_jobs();
     let full_frame = load_assay_json(&workspace)
         .map(|assay| skip_segment(&assay))
         .unwrap_or(false);
     eprintln!(
-        "timeseries workspace={} assay={} jobs={} full_frame={full_frame}",
+        "traces workspace={} assay={} jobs={} full_frame={full_frame}",
         workspace.display(),
         resolve_assay_path(&workspace, assay.as_deref()).display(),
         jobs
     );
-    timed("timeseries", || {
-        run_timeseries_with_mode(&workspace, &mapping, jobs, full_frame)
+    timed("traces", || {
+        run_traces_with_mode(&workspace, &mapping, jobs, full_frame)
     })
 }
 
@@ -193,8 +193,8 @@ fn cmd_fit(args: &[String]) -> Result<(), String> {
     })
 }
 
-fn cmd_plot_timeseries(args: &[String]) -> Result<(), String> {
-    let workspace = require_workspace_or_timeseries_dir(args)?;
+fn cmd_plot_traces(args: &[String]) -> Result<(), String> {
+    let workspace = require_workspace_or_analysis_dir(args)?;
     let assay = flag_path(args, "--assay");
     let mapping = load_mapping_for_workspace(&workspace, assay.as_deref())?;
     let interval = resolve_interval(&workspace, args)?;
@@ -203,16 +203,16 @@ fn cmd_plot_timeseries(args: &[String]) -> Result<(), String> {
         return Err("--columns must be >= 1".to_string());
     }
     eprintln!(
-        "plot-timeseries workspace={} interval={interval} columns={}",
+        "plot-traces workspace={} interval={interval} columns={}",
         workspace.display(),
         columns
             .map(|value| value.to_string())
             .unwrap_or_else(|| "auto".to_string())
     );
-    timed("plot-timeseries", || {
-        let named = require_named_samples(&mapping)?;
-        publish_sample_traces_xlsx(&workspace, &named)?;
-        run_plot_timeseries(&workspace, &mapping, interval, columns)
+    timed("plot-traces", || {
+        let samples = require_samples(&mapping)?;
+        publish_sample_traces_xlsx(&workspace, samples)?;
+        run_plot_traces(&workspace, &mapping, interval, columns)
     })
 }
 
@@ -222,8 +222,8 @@ fn cmd_plot_auc(args: &[String]) -> Result<(), String> {
     let mapping = load_mapping_for_workspace(&workspace, assay.as_deref())?;
     eprintln!("plot-auc workspace={}", workspace.display());
     timed("plot-auc", || {
-        let named = require_named_samples(&mapping)?;
-        publish_sample_tables_xlsx(&workspace, &named, "auc")?;
+        let samples = require_samples(&mapping)?;
+        publish_sample_tables_xlsx(&workspace, samples, "auc")?;
         run_plot_auc(&workspace, &mapping)
     })
 }
@@ -245,8 +245,8 @@ fn cmd_plot_fit(args: &[String]) -> Result<(), String> {
             .unwrap_or_else(|| "auto".to_string())
     );
     timed("plot-fit", || {
-        let named = require_named_samples(&mapping)?;
-        publish_sample_tables_xlsx(&workspace, &named, "fit")?;
+        let samples = require_samples(&mapping)?;
+        publish_sample_tables_xlsx(&workspace, samples, "fit")?;
         run_plot_fit(&workspace, &mapping, interval, columns)
     })
 }
@@ -295,12 +295,12 @@ fn require_workspace(args: &[String]) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// Accept either `<workspace>` or `<workspace>/analysis` (transfection plot-timeseries shape).
-fn require_workspace_or_timeseries_dir(args: &[String]) -> Result<PathBuf, String> {
+/// Accept either `<workspace>` or `<workspace>/analysis` (transfection plot-traces shape).
+fn require_workspace_or_analysis_dir(args: &[String]) -> Result<PathBuf, String> {
     let path = require_workspace(args)?;
     if matches!(
         path.file_name().and_then(|n| n.to_str()),
-        Some(name) if name == ANALYSIS_DIRNAME || name == "timeseries"
+        Some(name) if name == ANALYSIS_DIRNAME
     ) {
         return path
             .parent()

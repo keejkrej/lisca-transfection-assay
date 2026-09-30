@@ -9,10 +9,9 @@ use std::path::{Path, PathBuf};
 
 use crate::csv_io::{column_index, parse_f64, read_csv, write_csv_only};
 use crate::export::write_xlsx_only;
-use crate::slide::{require_named_samples, SlideMapping};
-use crate::timeseries::{
-    discover_analysis_table_csvs, discover_timeseries_csvs, parse_timeseries_path,
-    resolve_slide_channel,
+use crate::sample::{require_samples, SampleMapping};
+use crate::traces::{
+    discover_analysis_table_csvs, discover_trace_csvs, parse_trace_path, resolve_sample,
 };
 use crate::workspace_layout::{analysis_dir, results_dir};
 
@@ -80,11 +79,14 @@ pub fn filesystem_safe_sample_name(name: &str) -> String {
     }
 }
 
-pub fn sample_pack_dirnames(mapping: &SlideMapping) -> Result<BTreeMap<u32, String>, String> {
-    let named = require_named_samples(mapping)?;
-    let sanitized: BTreeMap<u32, String> = named
+/// `results/<dirname>/` per Sample index. Names that sanitize to the same
+/// dirname are prefixed with their 0-based assay index.
+pub fn sample_pack_dirnames(mapping: &SampleMapping) -> Result<BTreeMap<usize, String>, String> {
+    let samples = require_samples(mapping)?;
+    let sanitized: BTreeMap<usize, String> = samples
         .iter()
-        .map(|(channel, entry)| (*channel, filesystem_safe_sample_name(&entry.sample_name)))
+        .enumerate()
+        .map(|(index, sample)| (index, filesystem_safe_sample_name(&sample.name)))
         .collect();
     let mut counts: HashMap<String, usize> = HashMap::new();
     for name in sanitized.values() {
@@ -92,23 +94,15 @@ pub fn sample_pack_dirnames(mapping: &SlideMapping) -> Result<BTreeMap<u32, Stri
     }
     Ok(sanitized
         .into_iter()
-        .map(|(channel, name)| {
+        .map(|(index, name)| {
             let dirname = if counts.get(&name).copied().unwrap_or(0) > 1 {
-                format!("{channel}_{name}")
+                format!("{index}_{name}")
             } else {
                 name
             };
-            (channel, dirname)
+            (index, dirname)
         })
         .collect())
-}
-
-pub fn sample_display_names(mapping: &SlideMapping) -> BTreeMap<u32, String> {
-    mapping
-        .iter()
-        .filter(|(_, entry)| !entry.sample_name.is_empty())
-        .map(|(channel, entry)| (*channel, entry.sample_name.clone()))
-        .collect()
 }
 
 pub fn sample_pack_dir(workspace: &Path, dirname: &str) -> PathBuf {
@@ -121,19 +115,19 @@ pub fn sample_table_xlsx_path(workspace: &Path, dirname: &str, kind: &str) -> Pa
 
 pub fn publish_sample_traces_xlsx(
     workspace: &Path,
-    mapping: &SlideMapping,
+    mapping: &SampleMapping,
 ) -> Result<Vec<PathBuf>, String> {
-    let named = require_named_samples(mapping)?;
-    let csvs = discover_timeseries_csvs(&analysis_dir(workspace))?;
-    let dirnames = sample_pack_dirnames(&named)?;
-    let mut frames: BTreeMap<u32, Vec<Vec<String>>> = BTreeMap::new();
-    let multi_channel = named.values().any(|entry| entry.signal.len() > 1);
+    let samples = require_samples(mapping)?;
+    let csvs = discover_trace_csvs(&analysis_dir(workspace))?;
+    let dirnames = sample_pack_dirnames(samples)?;
+    let mut frames: BTreeMap<usize, Vec<Vec<String>>> = BTreeMap::new();
+    let multi_channel = samples.iter().any(|entry| entry.signal.len() > 1);
     for csv_path in csvs {
-        let Ok(slide_channel) = resolve_slide_channel(&csv_path, &named) else {
+        let Ok(sample) = resolve_sample(&csv_path, samples) else {
             continue;
         };
-        let (position, signal) = parse_timeseries_path(&csv_path)?;
-        let Some(entry) = named.get(&slide_channel) else {
+        let (position, signal) = parse_trace_path(&csv_path)?;
+        let Some(entry) = samples.get(sample) else {
             continue;
         };
         if !entry.signal.contains(&signal) {
@@ -163,7 +157,7 @@ pub fn publish_sample_traces_xlsx(
                 row[sum_index].clone(),
                 row[corrected_index].clone(),
             ]);
-            frames.entry(slide_channel).or_default().push(out);
+            frames.entry(sample).or_default().push(out);
         }
     }
 
@@ -173,8 +167,8 @@ pub fn publish_sample_traces_xlsx(
         &TRACE_HEADERS
     };
     let mut written = Vec::new();
-    for (slide_channel, mut rows) in frames {
-        let Some(dirname) = dirnames.get(&slide_channel) else {
+    for (sample, mut rows) in frames {
+        let Some(dirname) = dirnames.get(&sample) else {
             continue;
         };
         rows.sort_by(|left, right| {
@@ -199,34 +193,36 @@ pub fn publish_sample_traces_xlsx(
         written.push(output);
     }
     if written.is_empty() {
-        return Err("No analysis traces matched named samples[]".to_string());
+        return Err("No analysis traces matched samples[]".to_string());
     }
     Ok(written)
 }
 
+/// Table rows grouped by Sample index (assay order).
+pub type SampleRows = BTreeMap<usize, Vec<Vec<String>>>;
+
 pub fn concat_kind_rows(
     workspace: &Path,
-    mapping: &SlideMapping,
+    mapping: &SampleMapping,
     kind: &str,
-) -> Result<(Vec<String>, BTreeMap<u32, Vec<Vec<String>>>), String> {
-    let named = require_named_samples(mapping)?;
+) -> Result<(Vec<String>, SampleRows), String> {
+    let samples = require_samples(mapping)?;
     let csvs = discover_analysis_table_csvs(workspace, kind)?;
-    let names = sample_display_names(&named);
-    let mut position_to_channel: BTreeMap<u32, u32> = BTreeMap::new();
-    for (slide_channel, entry) in &named {
+    let mut position_to_sample: BTreeMap<u32, usize> = BTreeMap::new();
+    for (index, entry) in samples.iter().enumerate() {
         for position in &entry.positions {
-            if let Some(existing) = position_to_channel.get(position) {
-                if existing != slide_channel {
+            if let Some(existing) = position_to_sample.get(position) {
+                if *existing != index {
                     return Err(format!(
-                        "Position {position} is assigned to more than one named sample"
+                        "Position {position} is assigned to more than one sample"
                     ));
                 }
             }
-            position_to_channel.insert(*position, *slide_channel);
+            position_to_sample.insert(*position, index);
         }
     }
 
-    let mut grouped: BTreeMap<u32, Vec<Vec<String>>> = BTreeMap::new();
+    let mut grouped: BTreeMap<usize, Vec<Vec<String>>> = BTreeMap::new();
     let mut out_headers: Option<Vec<String>> = None;
     for csv_path in csvs {
         let parent = csv_path.parent().ok_or("auc/fit csv has no parent")?;
@@ -238,15 +234,15 @@ pub fn concat_kind_rows(
             .strip_prefix("Pos")
             .and_then(|rest| rest.parse::<u32>().ok())
             .ok_or_else(|| format!("Expected analysis/PosN/, got {}", parent.display()))?;
-        let Some(slide_channel) = position_to_channel.get(&position) else {
+        let Some(&sample_index) = position_to_sample.get(&position) else {
             continue;
         };
-        let sample = names
-            .get(slide_channel)
-            .cloned()
-            .unwrap_or_else(|| format!("slide channel {slide_channel}"));
+        let sample = samples
+            .get(sample_index)
+            .map(|entry| entry.name.clone())
+            .unwrap_or_default();
         let (headers, rows) = read_csv(&csv_path)?;
-        let mut prefixed = vec!["slide_channel".to_string(), "sample".to_string()];
+        let mut prefixed = vec!["sample".to_string()];
         if !headers.iter().any(|header| header == "pos") {
             prefixed.push("pos".to_string());
         }
@@ -256,32 +252,31 @@ pub fn concat_kind_rows(
         }
         let has_pos = headers.iter().any(|header| header == "pos");
         for row in rows {
-            let mut out_row = vec![slide_channel.to_string(), sample.clone()];
+            let mut out_row = vec![sample.clone()];
             if !has_pos {
                 out_row.push(position.to_string());
             }
             out_row.extend(row);
-            grouped.entry(*slide_channel).or_default().push(out_row);
+            grouped.entry(sample_index).or_default().push(out_row);
         }
     }
     let headers =
-        out_headers.ok_or_else(|| format!("No analysis {kind} rows matched named samples[]"))?;
+        out_headers.ok_or_else(|| format!("No analysis {kind} rows matched samples[]"))?;
     Ok((headers, grouped))
 }
 
 pub fn publish_sample_tables_xlsx(
     workspace: &Path,
-    mapping: &SlideMapping,
+    mapping: &SampleMapping,
     kind: &str,
 ) -> Result<Vec<PathBuf>, String> {
-    let named = require_named_samples(mapping)?;
-    let dirnames = sample_pack_dirnames(&named)?;
+    let dirnames = sample_pack_dirnames(mapping)?;
     let (headers, grouped) = concat_kind_rows(workspace, mapping, kind)?;
     let include_channel = headers.iter().any(|header| header == "channel");
     let preferred = xlsx_headers_for_kind(kind, include_channel);
     let mut written = Vec::new();
-    for (channel, rows) in grouped {
-        let Some(dirname) = dirnames.get(&channel) else {
+    for (sample, rows) in grouped {
+        let Some(dirname) = dirnames.get(&sample) else {
             continue;
         };
         let (out_headers, out_rows) = project_table_columns(&headers, &rows, preferred)?;
@@ -291,7 +286,7 @@ pub fn publish_sample_tables_xlsx(
         written.push(output);
     }
     if written.is_empty() {
-        return Err(format!("No analysis {kind} rows matched named samples[]"));
+        return Err(format!("No analysis {kind} rows matched samples[]"));
     }
     Ok(written)
 }
@@ -349,7 +344,7 @@ pub fn write_analysis_csv(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::slide::SlideChannelMapping;
+    use crate::sample::SampleAnalysis;
 
     #[test]
     fn filesystem_safe_replaces_separators_and_spaces() {
@@ -359,28 +354,17 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_sample_names_prefix_slide_channel() {
-        let mut mapping = BTreeMap::new();
-        mapping.insert(
-            0,
-            SlideChannelMapping {
-                positions: vec![1],
-                signal: vec![1],
-                mask: 0,
-                sample_name: "WT".into(),
-            },
-        );
-        mapping.insert(
-            1,
-            SlideChannelMapping {
-                positions: vec![2],
-                signal: vec![1],
-                mask: 0,
-                sample_name: "WT".into(),
-            },
-        );
+    fn colliding_sample_dirnames_prefix_assay_index() {
+        let sample = |name: &str, position: u32| SampleAnalysis {
+            name: name.into(),
+            positions: vec![position],
+            signal: vec![1],
+            segmentation: 0,
+        };
+        let mapping = SampleMapping(vec![sample("WT A", 1), sample("WT/A", 2), sample("KO", 3)]);
         let dirnames = sample_pack_dirnames(&mapping).unwrap();
-        assert_eq!(dirnames.get(&0).unwrap(), "0_WT");
-        assert_eq!(dirnames.get(&1).unwrap(), "1_WT");
+        assert_eq!(dirnames.get(&0).unwrap(), "0_WT_A");
+        assert_eq!(dirnames.get(&1).unwrap(), "1_WT_A");
+        assert_eq!(dirnames.get(&2).unwrap(), "KO");
     }
 }

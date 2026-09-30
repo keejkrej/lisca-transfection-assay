@@ -1,42 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rust_xlsxwriter::Workbook;
 
-pub fn parallel_xlsx_path(csv_path: &Path) -> PathBuf {
-    csv_path.with_extension("xlsx")
-}
-
-pub fn write_csv_and_xlsx(
-    path: &Path,
-    headers: &[&str],
-    rows: &[Vec<String>],
-) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-
-    let csv_path = path.to_path_buf();
-    let xlsx_path = parallel_xlsx_path(path);
-    let rows_owned = rows.to_vec();
-    let headers_owned: Vec<String> = headers.iter().map(|header| (*header).to_string()).collect();
-
-    let csv_result = std::thread::spawn(move || {
-        let header_refs: Vec<&str> = headers_owned.iter().map(|header| header.as_str()).collect();
-        super::csv_io::write_csv_only(&csv_path, &header_refs, &rows_owned)
-    })
-    .join()
-    .map_err(|_| "csv writer thread panicked".to_string())?;
-    let xlsx_result = write_xlsx(&xlsx_path, headers, rows);
-
-    csv_result?;
-    xlsx_result
-}
-
-pub fn write_xlsx_only(
-    path: &Path,
-    headers: &[&str],
-    rows: &[Vec<String>],
-) -> Result<(), String> {
+pub fn write_xlsx_only(path: &Path, headers: &[&str], rows: &[Vec<String>]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }

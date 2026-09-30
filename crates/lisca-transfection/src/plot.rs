@@ -12,8 +12,8 @@ pub use mplot_config::{
 #[allow(unused_imports)] // re-exported public API for assay modules / bins
 pub use util::{
     boxplot_tick_label, boxplot_x_axis_label, expand_degenerate_ylim, log_joint_limits,
-    percentile_ylim, percentile_ylim_with, quartile_axis_upper, sample_subplot_title,
-    sample_trace_naming_haystack, slide_channel_labels, trace_color_alpha, DEFAULT_PLOT_COLUMNS,
+    percentile_ylim, percentile_ylim_with, quartile_axis_upper, sample_labels,
+    sample_subplot_title, sample_trace_naming_haystack, trace_color_alpha, DEFAULT_PLOT_COLUMNS,
     JOINT_HIST_BINS,
 };
 
@@ -24,8 +24,8 @@ use mplot::prelude::{AxesStyle, FillBetweenStyle, GridPos, LegendStyle, LineDash
 use mplot::Color;
 
 use super::array::quantile;
-use super::slide::SlideMapping;
-use super::timeseries::TracePanel;
+use super::sample::SampleMapping;
+use super::traces::TracePanel;
 
 /// Write individual-trace plot plus mean/median/IQR summary.
 ///
@@ -33,12 +33,13 @@ use super::timeseries::TracePanel;
 /// `traces_summary.png`, `traces_summary_shared_y.png`. For `area.png`, pass
 /// `include_summary = false` (still writes `area_shared_y.png` when `shared_ylim`
 /// is set). Shared-y ylims are computed across all samples by the caller.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn write_metric_plots(
     panels: &[TracePanel],
     output_plot: &Path,
     y_label: &str,
     interval: f64,
-    mapping: &SlideMapping,
+    mapping: &SampleMapping,
     include_summary: bool,
     shared_ylim: Option<(f64, f64)>,
     shared_summary_ylim: Option<(f64, f64)>,
@@ -103,7 +104,7 @@ fn write_summary_metric_plots(
     output_plot: &Path,
     y_label: &str,
     interval: f64,
-    mapping: &SlideMapping,
+    mapping: &SampleMapping,
     shared_ylim: Option<(f64, f64)>,
 ) -> Result<(), String> {
     let summaries: Vec<Option<SampleSummary>> = panels
@@ -205,7 +206,7 @@ fn write_sample_panel(
     output_plot: &Path,
     y_label: &str,
     interval: f64,
-    mapping: &SlideMapping,
+    mapping: &SampleMapping,
     ylim_for_panel: impl Fn(usize) -> (f64, f64),
 ) -> Result<(), String> {
     require_single_panel(panels)?;
@@ -218,11 +219,11 @@ fn write_sample_panel(
         .fold(0.0f64, f64::max)
         * interval;
     let (color, alpha) = trace_color_alpha(&sample_trace_naming_haystack(
-        panel.slide_channel,
+        panel.sample,
         &panel.paths,
         mapping,
     ));
-    let title = sample_subplot_title(panel.slide_channel, panel.traces.len(), mapping);
+    let title = sample_subplot_title(panel.sample, panel.traces.len(), mapping);
     let traces = panel.traces.clone();
     let y_label = y_label.to_string();
     // Intensity traces (not area) use scientific y-tick labels.
@@ -256,14 +257,14 @@ fn write_summary_panel(
     summaries: &[Option<SampleSummary>],
     output_plot: &Path,
     y_label: &str,
-    mapping: &SlideMapping,
+    mapping: &SampleMapping,
     ylim_for_panel: impl Fn(usize) -> (f64, f64),
 ) -> Result<(), String> {
     require_single_panel(panels)?;
     let panel = &panels[0];
     let (y_low, y_high) = ylim_for_panel(0);
     let (color, _alpha) = trace_color_alpha(&sample_trace_naming_haystack(
-        panel.slide_channel,
+        panel.sample,
         &panel.paths,
         mapping,
     ));
@@ -271,7 +272,7 @@ fn write_summary_panel(
     let y_scientific = y_label.contains("intensity");
     let summary = summaries.first().and_then(|value| value.as_ref()).cloned();
     let title = sample_subplot_title(
-        panel.slide_channel,
+        panel.sample,
         summary.as_ref().map(|s| s.trace_count).unwrap_or(0),
         mapping,
     );

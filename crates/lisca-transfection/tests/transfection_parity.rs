@@ -12,10 +12,10 @@ use std::process::Command;
 use csv::ReaderBuilder;
 use lisca_transfection::array::{masked_roi_stats, trapezoidal_integral};
 use lisca_transfection::assay::AssayJsonFile;
-use lisca_transfection::slide::build_slide_mapping;
+use lisca_transfection::sample::build_sample_mapping;
 use lisca_transfection::{
-    publish_sample_tables_xlsx, publish_sample_traces_xlsx, require_named_samples, run_auc,
-    run_fit, run_plot_auc, run_plot_fit, run_plot_timeseries, run_timeseries,
+    publish_sample_tables_xlsx, publish_sample_traces_xlsx, require_samples, run_auc, run_fit,
+    run_plot_auc, run_plot_fit, run_plot_traces, run_traces,
 };
 use tempfile::tempdir;
 
@@ -81,19 +81,19 @@ fn trapezoidal_integral_matches_transfection_reference() {
 }
 
 #[test]
-fn timeseries_stage_matches_reference_metrics() {
+fn traces_stage_matches_reference_metrics() {
     let temp = tempdir().expect("tempdir");
     let fixture = SyntheticWorkspace::build(temp.path());
     let assay = read_assay_json(&fixture.root);
-    let mapping = build_slide_mapping(&assay).expect("mapping");
+    let mapping = build_sample_mapping(&assay).expect("mapping");
 
-    run_timeseries(&fixture.root, &mapping, 1).expect("timeseries");
+    run_traces(&fixture.root, &mapping, 1).expect("traces");
 
     let csv_path = fixture.root.join("analysis").join("Pos1").join("ch1.csv");
     assert!(csv_path.is_file(), "expected {}", csv_path.display());
 
     let (_, rows) = read_results_csv(&csv_path);
-    let expected = fixture.expected_timeseries_rows();
+    let expected = fixture.expected_trace_rows();
     assert_eq!(rows.len(), expected.len());
 
     for (row, (roi, t, area, background, sum, corrected)) in rows.iter().zip(expected) {
@@ -119,16 +119,16 @@ fn auc_stage_matches_reference_trapz() {
     let temp = tempdir().expect("tempdir");
     let fixture = SyntheticWorkspace::build(temp.path());
     let assay = read_assay_json(&fixture.root);
-    let mapping = build_slide_mapping(&assay).expect("mapping");
-    run_timeseries(&fixture.root, &mapping, 1).expect("timeseries");
+    let mapping = build_sample_mapping(&assay).expect("mapping");
+    run_traces(&fixture.root, &mapping, 1).expect("traces");
 
     run_auc(&fixture.root, INTERVAL_MINUTES).expect("auc");
     let csv_path = fixture.root.join("analysis").join("Pos1").join("auc.csv");
     let (_, rows) = read_results_csv(&csv_path);
     assert_eq!(rows.len(), 1);
 
-    let timeseries_path = fixture.root.join("analysis").join("Pos1").join("ch1.csv");
-    let (_, ts_rows) = read_results_csv(&timeseries_path);
+    let trace_path = fixture.root.join("analysis").join("Pos1").join("ch1.csv");
+    let (_, ts_rows) = read_results_csv(&trace_path);
     let mut trace_times = Vec::new();
     let mut trace_values = Vec::new();
     for row in ts_rows {
@@ -148,8 +148,8 @@ fn fit_stage_matches_transfection_reference_fit() {
     let temp = tempdir().expect("tempdir");
     let fixture = SyntheticWorkspace::build(temp.path());
     let assay = read_assay_json(&fixture.root);
-    let mapping = build_slide_mapping(&assay).expect("mapping");
-    run_timeseries(&fixture.root, &mapping, 1).expect("timeseries");
+    let mapping = build_sample_mapping(&assay).expect("mapping");
+    run_traces(&fixture.root, &mapping, 1).expect("traces");
 
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("fit");
     let csv_path = fixture.root.join("analysis").join("Pos1").join("fit.csv");
@@ -174,8 +174,8 @@ fn fit_stage_matches_transfection_reference_fit() {
     let row = &rows[0];
     assert_eq!(row["success"], "true");
 
-    let timeseries_path = fixture.root.join("analysis").join("Pos1").join("ch1.csv");
-    let (_, ts_rows) = read_results_csv(&timeseries_path);
+    let trace_path = fixture.root.join("analysis").join("Pos1").join("ch1.csv");
+    let (_, ts_rows) = read_results_csv(&trace_path);
     let mut trace_times = Vec::new();
     let mut trace_values = Vec::new();
     for ts_row in ts_rows {
@@ -229,28 +229,22 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
     let interval = INTERVAL_MINUTES.to_string();
     let analysis_pos = fixture.root.join("analysis").join("Pos1");
 
-    run_transfection(&transfection_root, "timeseries", &workspace, &[]);
-    let python_timeseries =
-        fs::read_to_string(analysis_pos.join("ch1.csv")).expect("python timeseries");
+    run_transfection(&transfection_root, "traces", &workspace, &[]);
+    let python_traces = fs::read_to_string(analysis_pos.join("ch1.csv")).expect("python traces");
     fs::remove_dir_all(fixture.root.join("analysis")).ok();
 
     let assay = read_assay_json(&fixture.root);
-    let mapping = build_slide_mapping(&assay).expect("mapping");
-    run_timeseries(&fixture.root, &mapping, 1).expect("rust timeseries");
-    let rust_timeseries =
-        fs::read_to_string(analysis_pos.join("ch1.csv")).expect("rust timeseries");
+    let mapping = build_sample_mapping(&assay).expect("mapping");
+    run_traces(&fixture.root, &mapping, 1).expect("rust traces");
+    let rust_traces = fs::read_to_string(analysis_pos.join("ch1.csv")).expect("rust traces");
     compare_csv_numeric_str(
-        &rust_timeseries,
-        &python_timeseries,
+        &rust_traces,
+        &python_traces,
         &["roi", "t", "area", "background", "sum", "corrected"],
         AUC_REL_TOL,
     );
-    assert_csv_headers(
-        &python_timeseries,
-        TRACE_ANALYSIS_HEADERS,
-        "python timeseries",
-    );
-    assert_csv_headers(&rust_timeseries, TRACE_ANALYSIS_HEADERS, "rust timeseries");
+    assert_csv_headers(&python_traces, TRACE_ANALYSIS_HEADERS, "python traces");
+    assert_csv_headers(&rust_traces, TRACE_ANALYSIS_HEADERS, "rust traces");
 
     run_transfection(
         &transfection_root,
@@ -277,7 +271,7 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
 
     run_transfection(
         &transfection_root,
-        "plot-timeseries",
+        "plot-traces",
         &workspace,
         &[("--interval", &interval)],
     );
@@ -323,13 +317,12 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
     assert_csv_headers(&rust_fit, FIT_ANALYSIS_HEADERS, "rust fit");
 
     set_positive_onset_for_log_plots(&analysis_pos.join("fit.csv"));
-    let named = require_named_samples(&mapping).expect("named samples");
-    publish_sample_traces_xlsx(&fixture.root, &named).expect("traces xlsx");
-    run_plot_timeseries(&fixture.root, &mapping, INTERVAL_MINUTES, None)
-        .expect("rust plot-timeseries");
-    publish_sample_tables_xlsx(&fixture.root, &named, "auc").expect("auc xlsx");
+    let samples = require_samples(&mapping).expect("samples");
+    publish_sample_traces_xlsx(&fixture.root, samples).expect("traces xlsx");
+    run_plot_traces(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("rust plot-traces");
+    publish_sample_tables_xlsx(&fixture.root, samples, "auc").expect("auc xlsx");
     run_plot_auc(&fixture.root, &mapping).expect("rust plot-auc");
-    publish_sample_tables_xlsx(&fixture.root, &named, "fit").expect("fit xlsx");
+    publish_sample_tables_xlsx(&fixture.root, samples, "fit").expect("fit xlsx");
     run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("rust plot-fit");
     assert_nonempty_png(&fit_scatter_png(&fixture.root), "rust plot-fit");
     assert_nonempty_png(
@@ -379,8 +372,8 @@ fn python_and_rust_csvs_match_on_synthetic_workspace() {
     assert_csv_headers(&rust_auc_xlsx, AUC_XLSX_HEADERS, "rust auc xlsx");
     assert_csv_headers(&python_fit_xlsx, FIT_XLSX_HEADERS, "python fit xlsx");
     assert_csv_headers(&rust_fit_xlsx, FIT_XLSX_HEADERS, "rust fit xlsx");
-    assert_no_dropped_names(&python_timeseries, "python timeseries");
-    assert_no_dropped_names(&rust_timeseries, "rust timeseries");
+    assert_no_dropped_names(&python_traces, "python traces");
+    assert_no_dropped_names(&rust_traces, "rust traces");
     assert_no_dropped_names(&python_auc, "python auc");
     assert_no_dropped_names(&rust_auc, "rust auc");
     assert_no_dropped_names(&python_fit, "python fit");
@@ -399,8 +392,8 @@ fn plot_fit_writes_expression_rate_vs_onset_time_png() {
     let temp = tempdir().expect("tempdir");
     let fixture = SyntheticWorkspace::build(temp.path());
     let assay = read_assay_json(&fixture.root);
-    let mapping = build_slide_mapping(&assay).expect("mapping");
-    run_timeseries(&fixture.root, &mapping, 1).expect("timeseries");
+    let mapping = build_sample_mapping(&assay).expect("mapping");
+    run_traces(&fixture.root, &mapping, 1).expect("traces");
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("fit");
     set_positive_onset_for_log_plots(&fixture.root.join("analysis").join("Pos1").join("fit.csv"));
     run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-fit");
@@ -460,12 +453,12 @@ fn plot_services_write_png_not_xlsx() {
     let temp = tempdir().expect("tempdir");
     let fixture = SyntheticWorkspace::build(temp.path());
     let assay = read_assay_json(&fixture.root);
-    let mapping = build_slide_mapping(&assay).expect("mapping");
-    run_timeseries(&fixture.root, &mapping, 1).expect("timeseries");
+    let mapping = build_sample_mapping(&assay).expect("mapping");
+    run_traces(&fixture.root, &mapping, 1).expect("traces");
     run_auc(&fixture.root, INTERVAL_MINUTES).expect("auc");
     run_fit(&fixture.root, INTERVAL_MINUTES, 0.0, 1).expect("fit");
     set_positive_onset_for_log_plots(&fixture.root.join("analysis").join("Pos1").join("fit.csv"));
-    run_plot_timeseries(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-timeseries");
+    run_plot_traces(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-traces");
     run_plot_auc(&fixture.root, &mapping).expect("plot-auc");
     run_plot_fit(&fixture.root, &mapping, INTERVAL_MINUTES, None).expect("plot-fit");
     let sample_dir = sample_results_dir(&fixture.root);
@@ -561,8 +554,8 @@ const FORBIDDEN_NAMES: &[&str] = &[
 
 fn assert_frozen_workspace_tree(workspace: &Path, side: &str) {
     assert!(
-        !workspace.join("timeseries").exists(),
-        "{side}: must not write a timeseries/ folder"
+        !workspace.join("traces").exists(),
+        "{side}: must not write a traces/ folder (transfection traces live in analysis/)"
     );
     let analysis_pos = workspace.join("analysis").join("Pos1");
     for name in ANALYSIS_CSVS {
@@ -863,7 +856,7 @@ fn center_mask() -> Vec<bool> {
     mask
 }
 
-fn synthetic_frame(timepoint: u32) -> Vec<f64> {
+fn synthetic_frame(frame_index: u32) -> Vec<f64> {
     let foreground = {
         let frame_indices: Vec<f64> = (0..4).map(f64::from).collect();
         let kinetic_truth = FitResult {
@@ -878,7 +871,7 @@ fn synthetic_frame(timepoint: u32) -> Vec<f64> {
             INTERVAL_MINUTES,
             kinetic_truth,
         );
-        (corrected[timepoint as usize] / 4.0 + 10.0) as u8
+        (corrected[frame_index as usize] / 4.0 + 10.0) as u8
     };
     let mut frame = vec![10.0; 16];
     for y in 1..3 {
