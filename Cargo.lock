@@ -861,8 +861,6 @@ dependencies = [
  "mplot",
  "ndarray 0.16.1",
  "ndarray-ndimage",
- "ndarray-stats",
- "noisy_float",
  "ort",
  "rayon",
  "rust_xlsxwriter",
