@@ -879,7 +879,7 @@ dependencies = [
  "csv",
  "image 0.25.10",
  "imageproc",
- "mlab_rs",
+ "mlab",
  "mplot",
  "ndarray 0.16.1",
  "ndarray-ndimage",
@@ -950,9 +950,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "mlab_rs"
+name = "mlab"
 version = "0.1.0"
-source = "git+https://github.com/keejkrej/mlab-rs?rev=333bc9005f5413600ccf86b36523b9cf1ebfff1e#333bc9005f5413600ccf86b36523b9cf1ebfff1e"
+source = "git+https://github.com/keejkrej/mlab-rs?rev=0366f8af5bba4baa4f6345e7d1dcc750179f6e29#0366f8af5bba4baa4f6345e7d1dcc750179f6e29"
 dependencies = [
  "nalgebra 0.33.3",
  "ndarray 0.16.1",
