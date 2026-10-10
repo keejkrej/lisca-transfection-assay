@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use mplot::prelude::{
-    AxesStyle, BoxplotStyle, Color, FillBetweenStyle, GridPos, GridSpec, LineStyle, Marker, Scale,
-    TextStyle, TickFormat, TickLabelRotation,
+    AxesStyle, BoxplotStyle, Color, FillBetweenStyle, GridPos, GridSpec, Marker, Scale,
+    ScatterStyle, TextStyle, TickFormat, TickLabelRotation,
 };
 
 use crate::array::{
@@ -371,22 +371,19 @@ fn pearson_r(x: &[f64], y: &[f64]) -> Option<f64> {
     let n = x.len() as f64;
     let mean_x = x.iter().sum::<f64>() / n;
     let mean_y = y.iter().sum::<f64>() / n;
-    let mut num = 0.0;
-    let mut den_x = 0.0;
-    let mut den_y = 0.0;
-    for (xi, yi) in x.iter().zip(y) {
-        let dx = xi - mean_x;
-        let dy = yi - mean_y;
-        num += dx * dy;
-        den_x += dx * dx;
-        den_y += dy * dy;
-    }
-    let den = den_x.sqrt() * den_y.sqrt();
-    if den == 0.0 || !den.is_finite() {
+    let den_x: f64 = x.iter().map(|value| (value - mean_x).powi(2)).sum();
+    let den_y: f64 = y.iter().map(|value| (value - mean_y).powi(2)).sum();
+    // A constant axis has no correlation. `pearsonr` reports that as r = 0.
+    if den_x == 0.0 || den_y == 0.0 {
         return None;
     }
-    let r = num / den;
-    r.is_finite().then_some(r)
+    mlab_rs::sp::stats::pearsonr(
+        &mlab_rs::np::array(x.to_vec()),
+        &mlab_rs::np::array(y.to_vec()),
+    )
+    .ok()
+    .map(|(coefficient, _p_value)| coefficient)
+    .filter(|coefficient| coefficient.is_finite())
 }
 
 fn pearson_annotation(r: Option<f64>, n: usize) -> String {
@@ -396,12 +393,13 @@ fn pearson_annotation(r: Option<f64>, n: usize) -> String {
     }
 }
 
-fn scatter_marker_style(color: Color) -> LineStyle {
-    LineStyle::new()
+fn scatter_marker_style(color: Color) -> ScatterStyle {
+    ScatterStyle::new()
         .color(color)
         .marker(Marker::Circle)
-        .width(1.0)
         .alpha(0.55)
+        .size(36.0)
+        .edge_width(0.0)
 }
 
 fn write_optional_kinetic_joint_scatter(
@@ -496,10 +494,7 @@ fn write_log_joint_scatter(
             let ylabel = ylabel.clone();
             let annotation = annotation.clone();
             move |p| {
-                for (x, y) in xs.iter().zip(ys.iter()) {
-                    // mplot has no scatter primitive; one-point marked lines skip the stroke.
-                    p.line(&[*x], &[*y], scatter_marker_style(color));
-                }
+                p.scatter(&xs, &ys, scatter_marker_style(color));
                 p.text(text_x, text_y, annotation, TextStyle::new().fontsize(17.0));
                 p.axes(
                     AxesStyle::new()
