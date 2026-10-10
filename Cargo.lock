@@ -879,7 +879,7 @@ dependencies = [
  "csv",
  "image 0.25.10",
  "imageproc",
- "mlab",
+ "marray",
  "mplot",
  "ndarray 0.16.1",
  "ndarray-ndimage",
@@ -903,6 +903,20 @@ name = "lzma-rust2"
 version = "0.15.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e20f57f9918e5bd7bc58c22cdd70a6afc7375d4dd9683af5f2b34bd3d2bba619"
+
+[[package]]
+name = "marray"
+version = "1.0.0"
+source = "git+https://github.com/keejkrej/marray-rs?rev=af67ac2d833f55e069f286022d0a0de0b9547bfb#af67ac2d833f55e069f286022d0a0de0b9547bfb"
+dependencies = [
+ "nalgebra 0.33.3",
+ "ndarray 0.16.1",
+ "num-traits",
+ "rand",
+ "rand_distr",
+ "rustfft",
+ "special",
+]
 
 [[package]]
 name = "matrixmultiply"
@@ -950,20 +964,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mlab"
-version = "0.1.0"
-source = "git+https://github.com/keejkrej/mlab-rs?rev=0366f8af5bba4baa4f6345e7d1dcc750179f6e29#0366f8af5bba4baa4f6345e7d1dcc750179f6e29"
-dependencies = [
- "nalgebra 0.33.3",
- "ndarray 0.16.1",
- "num-traits",
- "rand",
- "rand_distr",
- "rustfft",
- "special",
-]
-
-[[package]]
 name = "moxcms"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -975,8 +975,8 @@ dependencies = [
 
 [[package]]
 name = "mplot"
-version = "0.1.0"
-source = "git+https://github.com/keejkrej/mplot-rs?rev=b4a3b228e1ab1aeb54a0f15a37b5bf9ff9f73386#b4a3b228e1ab1aeb54a0f15a37b5bf9ff9f73386"
+version = "1.0.0"
+source = "git+https://github.com/keejkrej/mplot-rs?rev=b5f3690f7410fa67709621b564b51272f5b3b6e9#b5f3690f7410fa67709621b564b51272f5b3b6e9"
 dependencies = [
  "num-traits",
  "plotters",

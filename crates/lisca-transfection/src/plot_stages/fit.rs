@@ -377,9 +377,9 @@ fn pearson_r(x: &[f64], y: &[f64]) -> Option<f64> {
     if den_x == 0.0 || den_y == 0.0 {
         return None;
     }
-    mlab::sp::stats::pearsonr(
-        &mlab::np::array(x.to_vec()),
-        &mlab::np::array(y.to_vec()),
+    marray::sp::stats::pearsonr(
+        &marray::np::array(x.to_vec()),
+        &marray::np::array(y.to_vec()),
     )
     .ok()
     .map(|(coefficient, _p_value)| coefficient)
