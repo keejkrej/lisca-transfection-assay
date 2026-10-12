@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from transfection import core as plot_layout
+from transfection.core.frame_time import frame_minutes
 from transfection.core.roi import read_position_index, read_roi_stack, roi_frame_2d
 from transfection.core.segment import otsu_threshold, segment_frame
 
@@ -179,7 +180,7 @@ def plot_coculture_traces(
     for cell_type in (TYPE_A, TYPE_B):
         type_df = df.loc[df["cell_type"] == cell_type]
         for (_, _), trace in type_df.groupby(["pos", "roi"], sort=True):
-            minutes = trace["t"].astype(float).to_numpy(dtype=float) * interval_minutes
+            minutes = frame_minutes(trace["t"].to_numpy(dtype=float), interval_minutes)
             values = trace["corrected"].astype(float).to_numpy(dtype=float)
             ax.plot(
                 minutes,
@@ -195,8 +196,8 @@ def plot_coculture_traces(
             .median()
             .sort_values("t")
         )
-        median_minutes = (
-            median_trace["t"].astype(float).to_numpy(dtype=float) * interval_minutes
+        median_minutes = frame_minutes(
+            median_trace["t"].to_numpy(dtype=float), interval_minutes
         )
         median_values = median_trace["corrected"].astype(float).to_numpy(dtype=float)
         ax.plot(
@@ -211,7 +212,9 @@ def plot_coculture_traces(
 
     y_low, y_high = percentile_ylim(df["corrected"].to_numpy(dtype=float))
     ax.set_ylim(y_low, y_high)
-    ax.set_xlim(0.0, float(df["t"].max() * interval_minutes))
+    ax.set_xlim(
+        0.0, float(np.nanmax(frame_minutes(df["t"].to_numpy(dtype=float), interval_minutes)))
+    )
     ax.set_xlabel("time (min)")
     ax.set_ylabel("background-corrected mCherry intensity (a.u.)")
     ax.set_title("mCherry traces by patch and cell type")

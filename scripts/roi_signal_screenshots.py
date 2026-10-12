@@ -259,8 +259,10 @@ def _hours_to_time_labels(
 ) -> list[tuple[str, int, float]]:
     """Map requested hours to nearest stack time indices.
 
-    ``time_indices`` are acquisition indices stored in index.json (often 0..T-1).
-    Stack plane ``i`` corresponds to minutes = time_indices[i] * interval.
+    ``time_indices`` are acquisition frames stored in index.json.
+    Minutes are that frame times the interval, so labels ``0, 6, 12`` are
+    ``0, 60, 120`` when the interval is 10 minutes. The returned index is the
+    stack plane.
     """
     if not requested_hours:
         raise ValueError("--hours must list at least one value")
@@ -274,9 +276,7 @@ def _hours_to_time_labels(
             f"time_indices length {len(time_indices)} != time_count {time_count}"
         )
 
-    plane_hours = np.asarray(
-        [idx * interval_minutes / 60.0 for idx in time_indices], dtype=float
-    )
+    plane_hours = np.asarray(time_indices, dtype=float) * interval_minutes / 60.0
     labels = _default_time_labels(len(requested_hours))
     out: list[tuple[str, int, float]] = []
     for label, hours in zip(labels, requested_hours, strict=True):

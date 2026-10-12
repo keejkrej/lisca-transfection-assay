@@ -23,6 +23,7 @@ from transfection.core import (
     resolve_sample,
     trace_color_alpha_from_fluor_name,
 )
+from transfection.core.frame_time import frame_minutes
 from transfection.core.sample_pack import (
     concat_sample_traces,
     sample_pack_dir,
@@ -213,7 +214,7 @@ def sample_summary_curves(
             continue
         trace_groups = df.groupby(trace_group_columns(df), sort=True, dropna=False)
         for _, roi_df in trace_groups:
-            t_minutes = roi_df["t"].astype(float).to_numpy(dtype=float) * interval
+            t_minutes = frame_minutes(roi_df["t"].to_numpy(dtype=float), interval)
             y_values = roi_df[y_column].astype(float).to_numpy(dtype=float)
             finite = np.isfinite(t_minutes) & np.isfinite(y_values)
             if not np.any(finite):
@@ -379,7 +380,7 @@ def write_sample_panel(
     for _csv_path, df in frames:
         trace_groups = df.groupby(trace_group_columns(df), sort=True, dropna=False)
         for _, roi_df in trace_groups:
-            t_minutes = roi_df["t"].astype(float).to_numpy(dtype=float) * interval
+            t_minutes = frame_minutes(roi_df["t"].to_numpy(dtype=float), interval)
             ax.plot(t_minutes, roi_df[y_column], color=trace_color, alpha=trace_alpha)
         trace_count += int(trace_groups.ngroups)
     ax.set_title(subplot_title(sample, trace_count))

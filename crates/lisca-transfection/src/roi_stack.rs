@@ -142,7 +142,10 @@ pub fn read_position_index(pos_dir: &Path) -> Result<PositionIndex, String> {
     })
 }
 
-/// Map stack plane `i` → source time index used as CSV `t` and `t * interval` minutes.
+/// Map stack plane `i` → acquisition frame stored as CSV `t`.
+///
+/// Minutes are that frame times the interval (`frame_minutes`). Labels
+/// `0, 6, 12` with a 10 minute interval are `0, 60, 120`.
 pub fn resolve_time_indices(
     explicit: Option<Vec<u32>>,
     time_count: u32,

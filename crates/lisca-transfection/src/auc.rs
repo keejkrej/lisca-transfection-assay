@@ -5,6 +5,7 @@ use rayon::prelude::*;
 
 use crate::array::trapezoidal_integral;
 use crate::csv_io::{format_float, write_csv_only};
+use crate::frame_time::frame_minutes;
 use crate::traces::{discover_trace_csvs, group_trace_rows, parse_trace_path};
 use crate::workspace_layout::{analysis_dir, analysis_pos_dir};
 
@@ -62,7 +63,7 @@ fn compute_auc_table(csvs: &[PathBuf], interval: f64) -> Result<Vec<AucRow>, Str
     let mut rows = tasks
         .into_par_iter()
         .map(|task| {
-            let times: Vec<f64> = task.times.iter().map(|t| t * interval).collect();
+            let times = frame_minutes(&task.times, interval);
             AucRow {
                 pos: task.pos,
                 channel: task.channel,

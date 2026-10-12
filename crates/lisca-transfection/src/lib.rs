@@ -27,6 +27,7 @@ mod auc;
 mod csv_io;
 mod export;
 mod fit;
+mod frame_time;
 mod image_ops;
 mod metrics;
 mod pipeline;
@@ -53,6 +54,7 @@ pub use assay::{
 };
 pub use auc::run_auc;
 pub use fit::{default_fit_jobs, run_fit};
+pub use frame_time::frame_minutes;
 pub use pipeline::{run_pipeline, run_pipeline_with_mode, run_sync, run_sync_with_mode};
 pub use plot_stages::{run_plot_auc, run_plot_fit, run_plot_traces, DEFAULT_PLOT_COLUMNS};
 pub use sample::{

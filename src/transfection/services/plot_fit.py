@@ -21,6 +21,7 @@ from transfection.core import (
     trace_color_alpha_from_fluor_name,
     workspace_results_dir,
 )
+from transfection.core.frame_time import frame_minutes
 from transfection.core.kinetics import (
     BASELINE_INTENSITY_AXIS_LABEL,
     EXPRESSION_RATE_AXIS_LABEL,
@@ -683,7 +684,7 @@ def write_fitted_trace_panel(
         fit_row = fit_lookup.loc[lookup_key]
         if isinstance(fit_row, pd.DataFrame):
             fit_row = fit_row.iloc[0]
-        times_minutes = trace_df["t"].astype(float).to_numpy(dtype=float) * interval
+        times_minutes = frame_minutes(trace_df["t"].to_numpy(dtype=float), interval)
         predicted = fitted_trace_values(times_minutes, fit_row)
         ax.plot(times_minutes, predicted, color=trace_color, alpha=trace_alpha)
         matched_traces += 1
