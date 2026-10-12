@@ -6,6 +6,7 @@ use rayon::prelude::*;
 
 use crate::array::{evaluate_kinetic_candidate, half_life_minutes, KineticFitCoeffs};
 use crate::csv_io::write_csv_only;
+use crate::frame_time::frame_minutes;
 
 use super::segment::default_jobs;
 use super::traces::{build_fit_tasks, FitTraceTask};
@@ -89,7 +90,7 @@ fn fit_task(
     fixed_protein_degradation_rate: Option<f64>,
     max_onset_minutes: f64,
 ) -> FitCsvRow {
-    let times: Vec<f64> = task.times.iter().map(|value| value * interval).collect();
+    let times = frame_minutes(&task.times, interval);
     let values = &task.values;
     match fit_trace_points(
         &times,

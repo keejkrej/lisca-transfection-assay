@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use mplot::prelude::{
-    AxesStyle, BoxplotStyle, Color, FillBetweenStyle, GridPos, GridSpec, Marker, Scale,
+    AxesStyle, BarHStyle, BarStyle, BoxplotStyle, Color, GridPos, GridSpec, Marker, Scale,
     ScatterStyle, TextStyle, TickFormat, TickLabelRotation,
 };
 
@@ -11,6 +11,7 @@ use crate::array::{
     half_life_minutes, KineticFitCoeffs,
 };
 use crate::csv_io::{column_index, parse_f64, read_csv};
+use crate::frame_time::frame_minutes;
 use crate::plot::{
     boxplot_tick_label, boxplot_x_axis_label, companion_plot_path, figure_builder_joint,
     figure_builder_single, log_joint_limits, percentile_ylim, quartile_axis_upper, sample_labels,
@@ -360,8 +361,23 @@ fn log_lerp(low: f64, high: f64, t: f64) -> f64 {
     10.0_f64.powf(low.log10() + t * (high.log10() - low.log10()))
 }
 
-fn hist_fill_style(color: Color) -> FillBetweenStyle {
-    FillBetweenStyle::new().color(color).alpha(0.75)
+/// One matplotlib `hist` bar: width is `diff(bins)`, centered, `linewidth=0`.
+fn hist_bar_style(color: Color, width: f64) -> BarStyle {
+    BarStyle::new()
+        .color(color)
+        .alpha(0.75)
+        .width(width)
+        .edge_color(color)
+        .edge_width(0.0)
+}
+
+fn hist_barh_style(color: Color, height: f64) -> BarHStyle {
+    BarHStyle::new()
+        .color(color)
+        .alpha(0.75)
+        .height(height)
+        .edge_color(color)
+        .edge_width(0.0)
 }
 
 fn pearson_r(x: &[f64], y: &[f64]) -> Option<f64> {
@@ -456,14 +472,18 @@ fn write_log_joint_scatter(
     let y_edges = logspace_edges(y_low, y_high, JOINT_HIST_BINS);
     let x_counts = histogram_counts(&xs, &x_edges);
     let y_counts = histogram_counts(&ys, &y_edges);
-    let x_count_max = x_counts.iter().copied().fold(1.0_f64, f64::max) * 1.05;
-    let y_count_max = y_counts.iter().copied().fold(1.0_f64, f64::max) * 1.05;
+    let x_count_peak = x_counts.iter().copied().fold(0.0_f64, f64::max);
+    let y_count_peak = y_counts.iter().copied().fold(0.0_f64, f64::max);
+    let x_count_max = (x_count_peak * 1.05).max(1.0);
+    let y_count_max = (y_count_peak * 1.05).max(1.0);
     let xlabel = xlabel.to_string();
     let ylabel = ylabel.to_string();
-    let gs = GridSpec::new(5, 5);
+    // Three rows of ten for the marginal, matching matplotlib's attached hist
+    // (`JOINT_HIST_FRAC` is 22% of the main axes, not a crushed fifth).
+    let gs = GridSpec::new(10, 5);
 
     let figure = figure_builder_joint()
-        .panel(gs.span(0, 0, 1, 4), {
+        .panel(gs.span(0, 0, 3, 4), {
             let x_edges = x_edges.clone();
             let x_counts = x_counts.clone();
             let title = title.clone();
@@ -472,10 +492,17 @@ fn write_log_joint_scatter(
                     if *count <= 0.0 {
                         continue;
                     }
-                    let x = [x_edges[index], x_edges[index + 1]];
-                    let y0 = [0.0, 0.0];
-                    let y1 = [*count, *count];
-                    p.fill_between(&x, &y0, &y1, hist_fill_style(color));
+                    let left = x_edges[index];
+                    let right = x_edges[index + 1];
+                    let width = right - left;
+                    if width <= 0.0 {
+                        continue;
+                    }
+                    p.bar(
+                        &[left + width / 2.0],
+                        &[*count],
+                        hist_bar_style(color, width),
+                    );
                 }
                 p.axes(
                     AxesStyle::new()
@@ -483,11 +510,14 @@ fn write_log_joint_scatter(
                         .x_scale(Scale::Log)
                         .x_range(x_low, x_high)
                         .y_range(0.0, x_count_max)
-                        .x_tick_labels(&[x_low], &[""]),
+                        // Shared with the scatter: no x labels or marks.
+                        // Count ticks stay on y, as in matplotlib `tick_params`.
+                        .x_tick_labels(&[x_low], &[""])
+                        .hide_x_ticks(true),
                 );
             }
         })
-        .panel(gs.span(1, 0, 4, 4), {
+        .panel(gs.span(3, 0, 7, 4), {
             let xs = xs.clone();
             let ys = ys.clone();
             let xlabel = xlabel.clone();
@@ -507,22 +537,32 @@ fn write_log_joint_scatter(
                 );
             }
         })
-        .panel(gs.span(1, 4, 4, 1), move |p| {
+        .panel(gs.span(3, 4, 7, 1), move |p| {
             for (index, count) in y_counts.iter().enumerate() {
                 if *count <= 0.0 {
                     continue;
                 }
-                let x = [0.0, *count];
-                let y0 = [y_edges[index], y_edges[index]];
-                let y1 = [y_edges[index + 1], y_edges[index + 1]];
-                p.fill_between(&x, &y0, &y1, hist_fill_style(color));
+                let bottom = y_edges[index];
+                let top = y_edges[index + 1];
+                let height = top - bottom;
+                if height <= 0.0 {
+                    continue;
+                }
+                p.barh(
+                    &[bottom + height / 2.0],
+                    &[*count],
+                    hist_barh_style(color, height),
+                );
             }
             p.axes(
                 AxesStyle::new()
                     .y_scale(Scale::Log)
                     .y_range(y_low, y_high)
                     .x_range(0.0, y_count_max)
-                    .y_tick_labels(&[y_low], &[""]),
+                    // Shared with the scatter: no y labels or marks.
+                    // Count ticks stay on x.
+                    .y_tick_labels(&[y_low], &[""])
+                    .hide_y_ticks(true),
             );
         })
         .build()
@@ -570,7 +610,8 @@ fn write_fitted_trace_plots(
                     .partial_cmp(&right.0)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
-            let x: Vec<f64> = trace.iter().map(|(t, _)| *t * interval).collect();
+            let labels: Vec<f64> = trace.iter().map(|(t, _)| *t).collect();
+            let x = frame_minutes(&labels, interval);
             if let Some(last) = x.last().copied() {
                 max_t = max_t.max(last);
             }

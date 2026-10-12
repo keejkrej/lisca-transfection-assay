@@ -24,6 +24,7 @@ use mplot::prelude::{AxesStyle, FillBetweenStyle, GridPos, LegendStyle, LineDash
 use mplot::Color;
 
 use super::array::quantile;
+use super::frame_time::frame_minutes;
 use super::sample::SampleMapping;
 use super::traces::TracePanel;
 
@@ -136,19 +137,21 @@ fn sample_summary_curves(traces: &[Vec<(f64, f64)>], interval: f64) -> Option<Sa
     let mut by_time: BTreeMap<i64, Vec<f64>> = BTreeMap::new();
     let mut trace_count = 0usize;
     for trace in traces {
-        let mut used = false;
-        for &(t, y) in trace {
-            if !t.is_finite() || !y.is_finite() {
-                continue;
-            }
-            let minutes = t * interval;
-            let key = (minutes * 1_000_000.0).round() as i64;
-            by_time.entry(key).or_default().push(y);
-            used = true;
+        let finite: Vec<(f64, f64)> = trace
+            .iter()
+            .copied()
+            .filter(|(t, y)| t.is_finite() && y.is_finite())
+            .collect();
+        if finite.is_empty() {
+            continue;
         }
-        if used {
-            trace_count += 1;
+        let labels: Vec<f64> = finite.iter().map(|(t, _)| *t).collect();
+        let minutes = frame_minutes(&labels, interval);
+        for (minute, (_, y)) in minutes.iter().zip(finite.iter()) {
+            let key = (minute * 1_000_000.0).round() as i64;
+            by_time.entry(key).or_default().push(*y);
         }
+        trace_count += 1;
     }
     if by_time.is_empty() || trace_count == 0 {
         return None;
@@ -215,9 +218,13 @@ fn write_sample_panel(
     let max_t = panel
         .traces
         .iter()
-        .flat_map(|trace| trace.iter().map(|point| point.0))
-        .fold(0.0f64, f64::max)
-        * interval;
+        .map(|trace| {
+            let labels: Vec<f64> = trace.iter().map(|point| point.0).collect();
+            frame_minutes(&labels, interval)
+                .into_iter()
+                .fold(0.0_f64, f64::max)
+        })
+        .fold(0.0_f64, f64::max);
     let (color, alpha) = trace_color_alpha(&sample_trace_naming_haystack(
         panel.sample,
         &panel.paths,
@@ -232,7 +239,8 @@ fn write_sample_panel(
     let figure = figure_builder_single()
         .panel(GridPos::new(1, 1, 1), move |axes| {
             for trace in &traces {
-                let x: Vec<f64> = trace.iter().map(|(time, _)| time * interval).collect();
+                let labels: Vec<f64> = trace.iter().map(|(time, _)| *time).collect();
+                let x = frame_minutes(&labels, interval);
                 let y: Vec<f64> = trace.iter().map(|(_, value)| *value).collect();
                 axes.line(&x, &y, trace_line_style(color, alpha));
             }

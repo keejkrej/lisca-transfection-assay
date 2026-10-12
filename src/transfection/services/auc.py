@@ -14,6 +14,7 @@ from transfection.core import (
     workspace_analysis_dir,
     write_csv_only,
 )
+from transfection.core.frame_time import frame_minutes
 from transfection.core.parallel import worker_count
 from transfection.core.workspace import analysis_position_table_csv
 
@@ -29,7 +30,7 @@ def integrate_series(t_values: list[float], corrected: list[float], *, interval:
     if len(t_values) < 2:
         return 0.0
 
-    times = np.asarray(t_values, dtype=float) * interval
+    times = frame_minutes(np.asarray(t_values, dtype=float), interval)
     values = np.asarray(corrected, dtype=float)
     order = np.argsort(times, kind="mergesort")
     times = times[order]

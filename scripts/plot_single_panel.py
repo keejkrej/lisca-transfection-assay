@@ -19,6 +19,7 @@ import pandas as pd
 
 from transfection import core as paths
 from transfection import core as plot_layout
+from transfection.core.frame_time import frame_minutes
 from transfection.services import plot_fit, plot_traces
 from transfection.core import (
     discover_trace_csvs,
@@ -56,7 +57,7 @@ def _write_single_panel_traces(
     for _csv_path, df in panels:
         trace_groups = df.groupby(plot_traces.trace_group_columns(df), sort=True, dropna=False)
         for _, roi_df in trace_groups:
-            t_minutes = roi_df["t"].astype(float).to_numpy(dtype=float) * interval
+            t_minutes = frame_minutes(roi_df["t"].to_numpy(dtype=float), interval)
             ax.plot(t_minutes, roi_df[y_column], color=trace_color, alpha=trace_alpha)
             trace_count += 1
 

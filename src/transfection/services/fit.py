@@ -15,6 +15,7 @@ from transfection.core import (
     parse_trace_path,
 )
 from transfection.core.export import write_csv_only
+from transfection.core.frame_time import frame_minutes
 from transfection.core.kinetics import LN2, half_life_minutes
 from transfection.core.parallel import worker_count
 from transfection.core.workspace import analysis_position_table_csv
@@ -114,7 +115,7 @@ def fit_trace(
     if len(sorted_df) < 3:
         return None
 
-    times = sorted_df["t"].astype(float).to_numpy(dtype=float) * interval
+    times = frame_minutes(sorted_df["t"].to_numpy(dtype=float), interval)
     values = sorted_df["corrected"].astype(float).to_numpy(dtype=float)
     if not np.isfinite(times).all() or not np.isfinite(values).all():
         return None
